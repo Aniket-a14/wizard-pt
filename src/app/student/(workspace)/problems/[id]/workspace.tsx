@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { toast } from "sonner";
@@ -106,6 +107,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
   const [customOpen, setCustomOpen] = useState(false);
   const [customInput, setCustomInput] = useState(p.publicTests[0]?.input ?? "");
   const [narrow, setNarrow] = useState(false);
+  const router = useRouter();
   const codeRef = useRef(code);
   useEffect(() => {
     codeRef.current = code;
@@ -220,6 +222,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
         setOutcome({ kind: "submit", verdict: null, compileOutput: null, passedPublic: 0, totalPublic: 0, execTimeMs: null, results: [], submissionId: id, pending: true });
         setSubs((cur) => [{ id, status: "queued", verdict: null, scorePct: null, passedPublic: null, totalPublic: null, passedHidden: null, totalHidden: null, execTimeMs: null, submittedAt: new Date().toISOString(), version: p.version, hasFeedback: false }, ...cur.filter((x) => x.id !== id)]);
         toast.success("Submitted — your instructor will evaluate it");
+        router.refresh(); // lists and counts elsewhere must not serve a cached copy
         setBusy(null);
         return;
       }
@@ -256,6 +259,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
             });
             setSubs((cur) => [{ id, status: s.status, verdict: s.verdict, scorePct: s.score_pct === null ? null : Number(s.score_pct), passedPublic: s.passed_public, totalPublic: s.total_public, passedHidden: s.passed_hidden, totalHidden: s.total_hidden, execTimeMs: s.exec_time_ms, submittedAt: s.submitted_at, version: p.version, hasFeedback: false }, ...cur.filter((x) => x.id !== id)]);
             if (s.status === "completed") toast.success(`Submitted — ${VERDICT_LABEL[s.verdict as Verdict] ?? s.verdict}`);
+            router.refresh();
             setBusy(null);
             return;
           }
@@ -266,7 +270,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
       setOutcome((o) => ({ ...(o ?? { kind: "submit", verdict: null, compileOutput: null, passedPublic: 0, totalPublic: 0, execTimeMs: null, results: [] }), error: "Still evaluating. Your submission is saved — check the Submissions tab in a moment." }));
       setBusy(null);
     }
-  }, [busy, p.versionId, p.version, persist, externalRunner]);
+  }, [busy, p.versionId, p.version, persist, externalRunner, router]);
 
   async function retryEvaluation(id: string) {
     const res = await fetch(`/api/code/submissions/${id}`, { method: "POST" });

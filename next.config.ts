@@ -14,6 +14,10 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: { bodySizeLimit: "16mb" },
+    // Keep visited/prefetched pages for 30 s so going back and forth between pages is instant. Server actions
+    // and realtime notifications call revalidatePath/router.refresh, which clear this cache, so new problems,
+    // submissions and feedback still show up straight away.
+    staleTimes: { dynamic: 30, static: 180 },
   },
 };
 
