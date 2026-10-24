@@ -404,3 +404,41 @@ ${"// ==== STUDENT CODE END ===="}
     expect(bad.summary.verdict).not.toBe("accepted");
   });
 });
+
+describe.skipIf(!ready)("student pastes the whole file she tested elsewhere (method + her own main)", () => {
+  it("grades the real 'Scrambled Twin Codes' submission instead of failing with a duplicate main", async () => {
+    const problem = (await import("../scripts/problems/scrambled-twin-codes")).default;
+    const sig = parseSignature(problem.signature!);
+    const tests: EvalTest[] = [
+      ...problem.publicTests.map((t, i) => mk(`p${i}`, t.input, t.output)),
+      ...problem.hiddenTests.map((t, i) => mk(`h${i}`, t.input, t.output, "hidden")),
+    ];
+    const pasted = `public static int countTwinCodes(ArrayList<String> codes) {
+    ArrayList<String> sorted = new ArrayList<>();
+    for (String code : codes) { char[] a = code.toCharArray(); Arrays.sort(a); sorted.add(new String(a)); }
+    Collections.sort(sorted);
+    int count = 0, i = 0;
+    while (i < sorted.size()) {
+        int j = i + 1;
+        while (j < sorted.size() && sorted.get(i).equals(sorted.get(j))) j++;
+        if (j - i > 1) count += j - i;
+        i = j;
+    }
+    return count;
+}
+
+public static void main(String[] args) {
+    Scanner sc = new Scanner(System.in);
+    int n = sc.nextInt();
+    ArrayList<String> codes = new ArrayList<>();
+    for (int i = 0; i < n; i++) codes.add(sc.next());
+    System.out.println(countTwinCodes(codes));
+    sc.close();
+}
+`;
+    const r = await evaluate({ config: cfgFor(sig.declaration), tests, studentCode: pasted, runner });
+    expect(r.compileOutput).toBeNull();
+    expect(r.summary.verdict).toBe("accepted");
+    expect(r.summary.scorePct).toBe(100);
+  }, 120_000);
+});

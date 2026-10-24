@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseSignature, SignatureError, checkTestInputShape, describeSignatureFormat } from "./signature";
 import { buildFunctionTemplate, parseBoilerplate, BoilerplateError, EDIT_START, EDIT_END } from "./harness";
-import { composeProgram, validateStudentCode, CodeValidationError, checkBalanced, mapCompileOutput } from "./compose";
+import { composeProgram, validateStudentCode, CodeValidationError, checkBalanced, mapCompileOutput, stripStudentMain } from "./compose";
 import { compareOutput, normaliseOutput } from "./compare";
 import { summarise } from "./score";
 import { extractFunctionResult } from "./evaluate";
@@ -106,6 +106,36 @@ describe("template + compose", () => {
     const c = composeProgram({ ...cfg, editableScope: "body" }, "return code;");
     expect(c.source).toContain("public static String maskCode(String code) {\nreturn code;\n}");
     expect(c.lineOffset).toBeGreaterThan(5);
+  });
+
+  it("ignores a main() the student pasted along with the method, keeping line numbers", () => {
+    const student = [
+      "public static String maskCode(String code) {",
+      "    return code; // main( is not here",
+      "}",
+      "",
+      "public static void main(String[] args) throws Exception {",
+      '    String s = "}{ \\" ; // } tricky',
+      "    if (true) { System.out.println(maskCode(s)); }",
+      "}",
+    ].join("\n");
+    const out = stripStudentMain(student);
+    expect(out).not.toMatch(/void\s+main/);
+    expect(out).toContain("return code;");
+    expect(out.split("\n").length).toBe(student.split("\n").length);
+    const c = composeProgram(cfg, student);
+    expect(c.source.match(/void\s+main\s*\(/g)?.length).toBe(1); // only the platform's own
+    expect(c.studentLineCount).toBe(student.split("\n").length);
+  });
+
+  it("leaves nested mains, comments and non-main methods alone", () => {
+    const keep = [
+      "// public static void main(String[] a) {}",
+      "static String helper() { return \"static void main(\"; }",
+      "static class Inner { public static void main(String[] a) { } }",
+      "public static String maskCode(String code) { return code; }",
+    ].join("\n");
+    expect(stripStudentMain(keep)).toBe(keep);
   });
 
   it("rejects code that tries to break out of the editable region", () => {
