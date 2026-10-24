@@ -149,14 +149,14 @@ isOneToOne: false
                   ]
                 },"code_drafts": {
                   Row: {
-                    "question_version_id": string,"source_code": string,"student_id": string,"updated_at": string
+                    "language": string,"question_version_id": string,"source_code": string,"student_id": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "question_version_id": string,"source_code": string,"student_id": string,"updated_at"?: string
+                    "language"?: string,"question_version_id": string,"source_code": string,"student_id": string,"updated_at"?: string
                   }
                   Update: {
-                    "question_version_id"?: string,"source_code"?: string,"student_id"?: string,"updated_at"?: string
+                    "language"?: string,"question_version_id"?: string,"source_code"?: string,"student_id"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
@@ -247,14 +247,14 @@ isOneToOne: false
                   ]
                 },"coding_configs": {
                   Row: {
-                    "allow_custom_input": boolean,"compare_mode": string,"editable_scope": string,"execution_mode": string,"float_tolerance": number,"function_signature": string | null,"grading_mode": string,"language": string,"memory_limit_mb": number,"question_version_id": string,"reveal_hidden": boolean,"starter_code": string,"time_limit_ms": number
+                    "allow_custom_input": boolean,"compare_mode": string,"editable_scope": string,"execution_mode": string,"float_tolerance": number,"function_signature": string | null,"grading_mode": string,"language": string,"memory_limit_mb": number,"question_version_id": string,"reveal_hidden": boolean,"starter_code": string,"time_limit_ms": number,"variants": NonNullable<Json>
                   }
                   ComputedFields: never
                   Insert: {
-                    "allow_custom_input"?: boolean,"compare_mode"?: string,"editable_scope"?: string,"execution_mode"?: string,"float_tolerance"?: number,"function_signature"?: string | null,"grading_mode"?: string,"language"?: string,"memory_limit_mb"?: number,"question_version_id": string,"reveal_hidden"?: boolean,"starter_code": string,"time_limit_ms"?: number
+                    "allow_custom_input"?: boolean,"compare_mode"?: string,"editable_scope"?: string,"execution_mode"?: string,"float_tolerance"?: number,"function_signature"?: string | null,"grading_mode"?: string,"language"?: string,"memory_limit_mb"?: number,"question_version_id": string,"reveal_hidden"?: boolean,"starter_code": string,"time_limit_ms"?: number,"variants"?: NonNullable<Json>
                   }
                   Update: {
-                    "allow_custom_input"?: boolean,"compare_mode"?: string,"editable_scope"?: string,"execution_mode"?: string,"float_tolerance"?: number,"function_signature"?: string | null,"grading_mode"?: string,"language"?: string,"memory_limit_mb"?: number,"question_version_id"?: string,"reveal_hidden"?: boolean,"starter_code"?: string,"time_limit_ms"?: number
+                    "allow_custom_input"?: boolean,"compare_mode"?: string,"editable_scope"?: string,"execution_mode"?: string,"float_tolerance"?: number,"function_signature"?: string | null,"grading_mode"?: string,"language"?: string,"memory_limit_mb"?: number,"question_version_id"?: string,"reveal_hidden"?: boolean,"starter_code"?: string,"time_limit_ms"?: number,"variants"?: NonNullable<Json>
                   }
                   Relationships: [
                     {
@@ -267,14 +267,14 @@ isOneToOne: true
                   ]
                 },"coding_secrets": {
                   Row: {
-                    "boilerplate_source": string | null,"last_validation": Json | null,"question_version_id": string,"reference_solution": string | null,"template_prefix": string,"template_suffix": string
+                    "boilerplate_source": string | null,"last_validation": Json | null,"question_version_id": string,"reference_solution": string | null,"template_prefix": string,"template_suffix": string,"variants": NonNullable<Json>
                   }
                   ComputedFields: never
                   Insert: {
-                    "boilerplate_source"?: string | null,"last_validation"?: Json | null,"question_version_id": string,"reference_solution"?: string | null,"template_prefix"?: string,"template_suffix"?: string
+                    "boilerplate_source"?: string | null,"last_validation"?: Json | null,"question_version_id": string,"reference_solution"?: string | null,"template_prefix"?: string,"template_suffix"?: string,"variants"?: NonNullable<Json>
                   }
                   Update: {
-                    "boilerplate_source"?: string | null,"last_validation"?: Json | null,"question_version_id"?: string,"reference_solution"?: string | null,"template_prefix"?: string,"template_suffix"?: string
+                    "boilerplate_source"?: string | null,"last_validation"?: Json | null,"question_version_id"?: string,"reference_solution"?: string | null,"template_prefix"?: string,"template_suffix"?: string,"variants"?: NonNullable<Json>
                   }
                   Relationships: [
                     {

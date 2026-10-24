@@ -1,7 +1,10 @@
 import { EDIT_END, EDIT_START } from "./harness";
+import { declaredName, LANG_META, type Lang } from "./languages";
 import { parseSignature } from "./signature";
 
 export interface ComposeConfig {
+  /** Language the student is writing in. Defaults to Java. */
+  language?: Lang;
   executionMode: "function" | "program";
   editableScope: "method" | "body";
   functionSignature: string | null;
@@ -87,6 +90,8 @@ function maskJava(code: string): string {
 }
 
 const MAIN_METHOD = /(?:\b(?:public|private|protected|final)\s+)*\bstatic\s+(?:final\s+)?void\s+main\s*\(/g;
+// C / C++: `int main(...)` or `void main(...)` at file level.
+const C_MAIN = /\b(?:int|void)\s+main\s*\(/g;
 
 /**
  * Function-mode problems run through the platform's own `main`. Students often paste back the whole file
@@ -94,14 +99,15 @@ const MAIN_METHOD = /(?:\b(?:public|private|protected|final)\s+)*\bstatic\s+(?:f
  * top-level `static void main(...)` from the student's code, keeping its line count so compile errors
  * still point at the right line. The stored submission itself is never altered.
  */
-export function stripStudentMain(code: string): string {
+export function stripStudentMain(code: string, lang: Lang = "java"): string {
+  const pattern = lang === "java" ? MAIN_METHOD : C_MAIN;
   let result = code;
   let removed = true;
   while (removed) {
     removed = false;
     const masked = maskJava(result);
-    MAIN_METHOD.lastIndex = 0;
-    for (let hit = MAIN_METHOD.exec(masked); hit; hit = MAIN_METHOD.exec(masked)) {
+    pattern.lastIndex = 0;
+    for (let hit = pattern.exec(masked); hit; hit = pattern.exec(masked)) {
       // only class-level declarations (brace depth 0 in the student's region)
       let depth = 0;
       for (let k = 0; k < hit.index; k++) depth += masked[k] === "{" ? 1 : masked[k] === "}" ? -1 : 0;
@@ -128,7 +134,7 @@ export function stripStudentMain(code: string): string {
 }
 
 /** Validate what the student is allowed to submit. Throws CodeValidationError with a friendly message. */
-export function validateStudentCode(code: string, cfg: Pick<ComposeConfig, "executionMode" | "editableScope" | "functionSignature">): void {
+export function validateStudentCode(code: string, cfg: Pick<ComposeConfig, "executionMode" | "editableScope" | "functionSignature"> & { language?: Lang }): void {
   if (typeof code !== "string" || code.trim() === "") throw new CodeValidationError("Your code is empty.");
   if (new TextEncoder().encode(code).length > MAX_SOURCE_BYTES) {
     throw new CodeValidationError("Your code is too large (limit 64 KB).");
@@ -142,17 +148,22 @@ export function validateStudentCode(code: string, cfg: Pick<ComposeConfig, "exec
   if (cfg.executionMode === "function" && bal) {
     throw new CodeValidationError(`Your code has unbalanced brackets: ${bal}.`);
   }
+  const lang = cfg.language ?? "java";
   if (cfg.executionMode === "program") {
-    if (!/\bclass\s+Main\b/.test(code)) {
-      throw new CodeValidationError("Your program must define `public class Main` with a main method.");
-    }
-    if (!/static\s+void\s+main\s*\(/.test(code)) {
-      throw new CodeValidationError("Your program needs a `public static void main(String[] args)` method.");
+    if (lang === "java") {
+      if (!/\bclass\s+Main\b/.test(code)) {
+        throw new CodeValidationError("Your program must define `public class Main` with a main method.");
+      }
+      if (!/static\s+void\s+main\s*\(/.test(code)) {
+        throw new CodeValidationError("Your program needs a `public static void main(String[] args)` method.");
+      }
+    } else if (!/\bmain\s*\(/.test(code)) {
+      throw new CodeValidationError(`Your ${LANG_META[lang].label} program needs a \`main\` function.`);
     }
   } else if (cfg.editableScope === "method" && cfg.functionSignature) {
     let name: string | null = null;
     try {
-      name = parseSignature(cfg.functionSignature).name;
+      name = lang === "java" ? parseSignature(cfg.functionSignature).name : declaredName(cfg.functionSignature);
     } catch {
       name = null;
     }
@@ -179,7 +190,7 @@ function countLines(s: string): number {
  */
 export function composeProgram(cfg: ComposeConfig, studentCode: string): Composed {
   let code = studentCode.replace(/\r\n/g, "\n");
-  if (cfg.executionMode === "function" && cfg.editableScope === "method") code = stripStudentMain(code);
+  if (cfg.executionMode === "function" && cfg.editableScope === "method") code = stripStudentMain(code, cfg.language ?? "java");
   const studentLineCount = code.split("\n").length;
   if (cfg.executionMode === "program") {
     return { source: code, lineOffset: 0, studentLineCount };
@@ -200,9 +211,9 @@ export function composeProgram(cfg: ComposeConfig, studentCode: string): Compose
   return { source: `${prefix}${body}${suffix}`, lineOffset: countLines(prefix), studentLineCount };
 }
 
-/** Remap `Main.java:LINE:` in javac output to editor line numbers; wrapper-only lines are labelled. */
+/** Remap `Main.java:LINE` (javac) and `main.cpp:LINE:COL` (gcc/g++) to editor line numbers; wrapper-only lines are labelled. */
 export function mapCompileOutput(output: string, lineOffset: number, studentLineCount: number): string {
-  return output.replace(/Main\.java:(\d+)/g, (_m, num: string) => {
+  return output.replace(/(?:Main\.java|main\.cpp|main\.c):(\d+)(?::\d+)?/g, (_m, num: string) => {
     const line = Number(num) - lineOffset;
     if (line >= 1 && line <= studentLineCount) return `Line ${line}`;
     return "Line (platform wrapper)";

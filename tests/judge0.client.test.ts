@@ -26,7 +26,7 @@ beforeAll(async () => {
       const url = new URL(req.url!, base);
       res.setHeader("Content-Type", "application/json");
       if (mode === "down") { res.statusCode = 503; return void res.end(JSON.stringify({ error: "down" })); }
-      if (req.method === "GET" && url.pathname === "/languages") return void res.end(JSON.stringify([{ id: 91, name: "Java (JDK 17.0.6)" }]));
+      if (req.method === "GET" && url.pathname === "/languages") return void res.end(JSON.stringify([{ id: 91, name: "Java (JDK 17.0.6)" }, { id: 54, name: "C++ (GCC 9.2.0)" }, { id: 50, name: "C (GCC 9.2.0)" }]));
       if (req.method === "POST" && url.pathname === "/submissions/batch") {
         const body = JSON.parse(Buffer.concat(chunks).toString());
         const out = body.submissions.map((s: { source_code: string; stdin: string; language_id: number }) => {
@@ -110,10 +110,29 @@ describe("Judge0 client protocol", () => {
     expect(r[0].status).toBe("internal_error");
   });
 
-  it("health check verifies the Java language id", async () => {
+  it("health check verifies the Java, C++ and C language ids", async () => {
     mode = "ok";
     expect((await runner().health()).ok).toBe(true);
     expect((await runner({ languageId: 62 }).health()).ok).toBe(false);
+    const noC = await runner({ cLanguageId: 999 }).health();
+    expect(noC.ok).toBe(false);
+    expect(noC.detail).toMatch(/C \(language id 999\)/);
+  });
+
+  it("sends the Judge0 language id that matches each job's language", async () => {
+    mode = "ok";
+    jobs.clear();
+    await runner().execute([
+      { ...job("// java"), language: "java" as const },
+      { ...job("// cpp"), language: "cpp" as const },
+      { ...job("// c"), language: "c" as const },
+      job("// default is java"),
+    ]);
+    const bySource = Object.fromEntries([...jobs.values()].map((j) => [j.source, j.langId]));
+    expect(bySource).toEqual({ "// java": 91, "// cpp": 54, "// c": 50, "// default is java": 91 });
+    jobs.clear();
+    await runner({ cppLanguageId: 105, cLanguageId: 103 }).execute([{ ...job("// cpp"), language: "cpp" as const }, { ...job("// c"), language: "c" as const }]);
+    expect(Object.fromEntries([...jobs.values()].map((j) => [j.source, j.langId]))).toEqual({ "// cpp": 105, "// c": 103 });
   });
 
   it("works through the full evaluation pipeline and a down runner gives system_error", async () => {

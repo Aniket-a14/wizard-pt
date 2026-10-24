@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { CodeViewer } from "@/components/code-editor";
+import { isLang, LANG_META } from "@/lib/coding/languages";
 import { Badge, ReviewBadge, VerdictBadge } from "@/components/ui/badge";
 import { PageHeader, Panel, PanelHeader } from "@/components/ui/panel";
 import { diffLines } from "@/lib/diff";
@@ -22,6 +23,7 @@ export default async function CodeSubmission({ params, searchParams }: PageProps
   const s = await supabase.from("code_submissions").select("*, student:profiles!code_submissions_student_id_fkey(display_name), v:question_versions(id, question_id, version, title, marks)").eq("id", id).maybeSingle();
   if (!s.data) notFound();
   const sub = s.data;
+  const lang = isLang(sub.language) ? sub.language : "java";
   const [priv, review, siblings] = await Promise.all([
     supabase.from("code_submission_private").select("detailed_results").eq("submission_id", id).maybeSingle(),
     supabase.from("reviews").select("*").eq("code_submission_id", id).maybeSingle(),
@@ -36,7 +38,7 @@ export default async function CodeSubmission({ params, searchParams }: PageProps
 
   return (
     <>
-      <PageHeader title={sub.v?.title ?? "Submission"} description={`${sub.student?.display_name} · ${formatDateTime(sub.submitted_at)} · problem v${sub.v?.version} · ${sub.language}`}
+      <PageHeader title={sub.v?.title ?? "Submission"} description={`${sub.student?.display_name} · ${formatDateTime(sub.submitted_at)} · problem v${sub.v?.version} · ${LANG_META[lang].label}`}
         actions={<Link href="/admin/submissions" className="text-sm text-accent underline">← All submissions</Link>} />
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <div className="space-y-5">
@@ -78,7 +80,7 @@ export default async function CodeSubmission({ params, searchParams }: PageProps
 
           <Panel>
             <PanelHeader title="Submitted source (read-only, exact snapshot)" />
-            <div className="p-4"><CodeViewer code={sub.source_code} /></div>
+            <div className="p-4"><CodeViewer code={sub.source_code} language={LANG_META[lang].monaco} /></div>
           </Panel>
 
           {diff && other && (

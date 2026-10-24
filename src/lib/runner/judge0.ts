@@ -1,4 +1,4 @@
-import { internalError, type RawStatus, type RunJob, type RunResult, type Runner, RunnerUnavailableError } from "./types";
+import { internalError, type RawStatus, type RunJob, type RunLanguage, type RunResult, type Runner, RunnerUnavailableError } from "./types";
 
 export interface Judge0Config {
   baseUrl: string;
@@ -9,6 +9,9 @@ export interface Judge0Config {
   rapidApiHost?: string;
   /** Judge0 language id for Java (62 = OpenJDK 13 on Judge0 CE 1.13.x). */
   languageId: number;
+  /** Judge0 ids for C++ and C (defaults 54 = C++ GCC 9.2 and 50 = C GCC 9.2 on Judge0 CE 1.13.x). */
+  cppLanguageId?: number;
+  cLanguageId?: number;
   /** Judge0 server-side cap (MAX_MEMORY_LIMIT, default 512000 KB). */
   maxMemoryKb: number;
   pollTimeoutMs: number;
@@ -48,6 +51,12 @@ export class Judge0Runner implements Runner {
     return h;
   }
 
+  private languageIdFor(language: RunLanguage | undefined): number {
+    if (language === "cpp") return this.cfg.cppLanguageId ?? 54;
+    if (language === "c") return this.cfg.cLanguageId ?? 50;
+    return this.cfg.languageId;
+  }
+
   private url(path: string): string {
     return `${this.cfg.baseUrl.replace(/\/$/, "")}${path}`;
   }
@@ -57,9 +66,11 @@ export class Judge0Runner implements Runner {
       const res = await this.f(this.url("/languages"), { headers: this.headers(), signal: AbortSignal.timeout(10_000) });
       if (!res.ok) return { ok: false, detail: `Judge0 responded ${res.status}` };
       const langs = (await res.json()) as { id: number; name: string }[];
-      const java = langs.find((l) => l.id === this.cfg.languageId);
-      if (!java) return { ok: false, detail: `Judge0 is reachable but language id ${this.cfg.languageId} is not available` };
-      return { ok: true, detail: `Judge0 reachable · ${java.name}` };
+      const wanted = ([["Java", this.cfg.languageId], ["C++", this.languageIdFor("cpp")], ["C", this.languageIdFor("c")]] as const);
+      const found = wanted.map(([label, id]) => ({ label, id, name: langs.find((l) => l.id === id)?.name }));
+      const missing = found.filter((f) => !f.name);
+      if (missing.length) return { ok: false, detail: `Judge0 is reachable but ${missing.map((m) => `${m.label} (language id ${m.id})`).join(", ")} is not available` };
+      return { ok: true, detail: `Judge0 reachable · ${found.map((f) => f.name).join(" · ")}` };
     } catch (e) {
       return { ok: false, detail: `Judge0 unreachable: ${(e as Error).message}` };
     }
@@ -75,7 +86,7 @@ export class Judge0Runner implements Runner {
 
   private async executeBatch(jobs: RunJob[]): Promise<RunResult[]> {
     const submissions = jobs.map((j) => ({
-      language_id: this.cfg.languageId,
+      language_id: this.languageIdFor(j.language),
       source_code: b64(j.source),
       stdin: b64(j.stdin),
       cpu_time_limit: Math.max(0.5, j.timeLimitMs / 1000),

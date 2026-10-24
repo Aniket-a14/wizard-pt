@@ -122,7 +122,7 @@ function classify(
   if (cfg.executionMode === "function" && !driverPrintsResult(cfg)) {
     const ex = extractFunctionResult(r.stdout);
     if (!ex) {
-      return { ...base, ...empty, studentStdout: trunc(r.stdout), status: "runtime_error", message: "The program ended without returning a result (did it call System.exit?)." };
+      return { ...base, ...empty, studentStdout: trunc(r.stdout), status: "runtime_error", message: "The program ended without returning a result (did it call System.exit / exit()?)." };
     }
     actual = ex.actual;
     studentStdout = ex.studentStdout;
@@ -182,6 +182,7 @@ export async function evaluate({ config, tests, studentCode, runner }: EvalArgs)
   try {
     raw = await runner.execute(
       tests.map((t) => ({
+        language: config.language ?? "java",
         source: composed.source,
         stdin: t.input,
         timeLimitMs: config.timeLimitMs,
@@ -242,7 +243,7 @@ export async function evaluateCustom(args: { config: EvalConfig; input: string; 
   const lineMap = (s: string) => mapCompileOutput(s, composed.lineOffset, composed.studentLineCount);
   let r: RunResult;
   try {
-    [r] = await args.runner.execute([{ source: composed.source, stdin: args.input, timeLimitMs: args.config.timeLimitMs, memoryLimitMb: args.config.memoryLimitMb }]);
+    [r] = await args.runner.execute([{ language: args.config.language ?? "java", source: composed.source, stdin: args.input, timeLimitMs: args.config.timeLimitMs, memoryLimitMb: args.config.memoryLimitMb }]);
   } catch (e) {
     return { status: "system_error", compileOutput: null, output: null, studentStdout: "", stderr: "", timeMs: null, systemError: (e as Error).message };
   }
@@ -261,7 +262,7 @@ export async function evaluateCustom(args: { config: EvalConfig; input: string; 
   }
   if (args.config.executionMode === "function" && !driverPrintsResult(args.config)) {
     const ex = extractFunctionResult(r.stdout);
-    if (!ex) return { ...base, status: "runtime_error", studentStdout: trunc(r.stdout), stderr: "The program ended without returning a result (did it call System.exit?)." };
+    if (!ex) return { ...base, status: "runtime_error", studentStdout: trunc(r.stdout), stderr: "The program ended without returning a result (did it call System.exit / exit()?)." };
     return { ...base, status: "ok", output: trunc(ex.actual), studentStdout: trunc(ex.studentStdout) };
   }
   return { ...base, status: "ok", output: trunc(r.stdout) };

@@ -89,6 +89,21 @@ const REFERENCE = `public static int countTwinCodes(ArrayList<String> codes) {
     return count;
 }`;
 
+const CPP_REFERENCE = `int countTwinCodes(vector<string>& codes) {
+    vector<string> sorted;
+    for (string c : codes) { sort(c.begin(), c.end()); sorted.push_back(c); }
+    sort(sorted.begin(), sorted.end());
+    int count = 0;
+    size_t i = 0;
+    while (i < sorted.size()) {
+        size_t j = i + 1;
+        while (j < sorted.size() && sorted[j] == sorted[i]) j++;
+        if (j - i > 1) count += (int)(j - i);
+        i = j;
+    }
+    return count;
+}`;
+
 const problem: SeedProblem = {
   title: "Scrambled Twin Codes",
   difficulty: "medium",
@@ -121,6 +136,8 @@ Do not use HashMap. Sort the letters of each code (toCharArray + Arrays.sort), t
   signature: "public static int countTwinCodes(ArrayList<String> codes)",
   compare: "exact",
   reference: REFERENCE,
+  // C++ is derived from the same Java signature (vector<string>&); C is not offered because it has no List type.
+  languages: { cpp: { reference: CPP_REFERENCE } },
   publicTests: [
     { input: "7\nLISTEN SILENT ENLIST GOOGLE CODE DECO JAVA", output: "5" },
     { input: "3\nABC DEF GHI", output: "0" },

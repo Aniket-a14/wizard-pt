@@ -10,6 +10,8 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Markdown } from "@/components/ui/markdown";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { parsePastedText } from "@/lib/actions/imports";
+import { LanguagesPanel, type LanguagesForm } from "./languages-panel";
+import { EXTRA_LANGUAGES, LANG_META, type ExtraLang } from "@/lib/coding/languages";
 import { publishCodingQuestion, saveCodingDraft, unpublishQuestion, validateWithReference, type ValidationReport } from "@/lib/actions/questions";
 import { composeProgram } from "@/lib/coding/compose";
 import { buildFunctionTemplate, parseBoilerplate, EDIT_START, EDIT_END } from "@/lib/coding/harness";
@@ -41,6 +43,8 @@ export interface CodingForm {
   starterCode: string;
   boilerplateSource: string;
   referenceSolution: string;
+  /** Optional C++ / C versions of the problem (presence = enabled). */
+  languages: LanguagesForm;
   timeLimitMs: number;
   memoryLimitMb: number;
   compareMode: CompareMode;
@@ -64,7 +68,7 @@ export const EMPTY_CODING: CodingForm = {
   questionId: null, versionId: null, title: "", difficulty: "easy", topic: "", tagsText: "", company: "", marks: 10, estMinutes: "",
   statement_md: "", input_format: "", output_format: "", constraints_md: "", examples: [], explanation_md: "",
   executionMode: "function", gradingMode: "auto", functionSignature: "", editableScope: "method", starterCode: "", boilerplateSource: "",
-  referenceSolution: "", timeLimitMs: 2000, memoryLimitMb: 256, compareMode: "exact", floatTolerance: 1e-6, allowCustomInput: true, revealHidden: false,
+  referenceSolution: "", languages: {}, timeLimitMs: 2000, memoryLimitMb: 256, compareMode: "exact", floatTolerance: 1e-6, allowCustomInput: true, revealHidden: false,
   tests: [], reviewFlags: [], importId: null,
 };
 
@@ -85,6 +89,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<string[]>([]);
   const [report, setReport] = useState<ValidationReport | null>(meta.lastValidation);
+  const [langReports, setLangReports] = useState<NonNullable<ValidationReport["byLanguage"]>>(meta.lastValidation?.byLanguage ?? {});
   const [pasteText, setPasteText] = useState("");
   const [preview, setPreview] = useState(false);
 
@@ -99,6 +104,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
     setReport(null);
+    setLangReports({});
   }
 
   const sigState = useMemo(() => {
@@ -179,6 +185,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
       },
       boilerplate_source: form.boilerplateSource,
       reference_solution: form.referenceSolution,
+      languages: Object.fromEntries(Object.entries(form.languages).map(([k, v]) => [k, { reference_solution: v.referenceSolution, boilerplate_source: v.boilerplateSource, starter_code: v.starterCode }])),
       tests: form.tests.map((t) => ({ ...t, weight: Number(t.weight) || 1, label: t.label || null })),
     };
   }
@@ -209,7 +216,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
     });
   }
 
-  function onValidate() {
+  function onValidate(language: "java" | ExtraLang = "java") {
     start(async () => {
       let vid = form.versionId;
       if (dirty || !vid) {
@@ -217,10 +224,11 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
         if (!r) return;
         vid = r.versionId;
       }
-      const res = await validateWithReference(vid!);
+      const res = await validateWithReference(vid!, language);
       if (!res.ok) return void toast.error(res.error);
-      setReport(res.report);
-      toast[res.report.passed === res.report.total ? "success" : "error"](`Reference solution: ${res.report.passed}/${res.report.total} tests pass`);
+      if (language === "java") setReport(res.report);
+      setLangReports(res.report.byLanguage ?? {});
+      toast[res.report.passed === res.report.total ? "success" : "error"](`${language === "java" ? "Java" : LANG_META[language].label} reference solution: ${res.report.passed}/${res.report.total} tests pass`);
     });
   }
 
@@ -465,8 +473,10 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.revealHidden} onChange={(e) => set("revealHidden", e.target.checked)} /> Reveal hidden test details after Submit</label>
           </Panel>
 
+          <LanguagesPanel value={form.languages} onChange={(v) => set("languages", v)} signature={form.functionSignature} mode={form.executionMode} errors={errors} />
+
           <Panel>
-            <PanelHeader title="Reference solution (private)" />
+            <PanelHeader title="Java reference solution (private)" />
             <div className="h-56" data-testid="reference-editor"><CodeEditor value={form.referenceSolution} onChange={(v) => set("referenceSolution", v)} /></div>
             <p className="border-t border-border px-4 py-2 text-xs text-muted">Stored privately. Use “Validate” on the last tab to check every test against it before publishing.</p>
           </Panel>
@@ -517,12 +527,17 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
             <ul className="space-y-1 p-4 text-sm">
               {checks.map((c) => (<li key={c.label} className="flex items-center gap-2"><span className={c.ok ? "text-success" : "text-danger"}>{c.ok ? "✓" : "✗"}</span>{c.label}</li>))}
               <li className="flex items-center gap-2"><span className={validated ? "text-success" : "text-warning"}>{validated ? "✓" : "○"}</span>
-                {validated ? `Reference solution passes all ${report!.total} tests` : "Not yet validated against a reference solution (recommended)"}</li>
+                {validated ? `Java reference solution passes all ${report!.total} tests` : "Not yet validated against a reference solution (recommended)"}</li>
+              {EXTRA_LANGUAGES.filter((l) => form.languages[l]).map((l) => {
+                const r = langReports[l];
+                const ok = !!r && r.passed === r.total && r.total > 0;
+                return <li key={l} className="flex items-center gap-2"><span className={ok ? "text-success" : "text-warning"}>{ok ? "✓" : "○"}</span>{ok ? `${LANG_META[l].label} reference solution passes all ${r!.total} tests` : `${LANG_META[l].label} is enabled but not yet validated — validate it below so students never get an untested language`}</li>;
+              })}
             </ul>
             {warnings.length > 0 && <ul className="list-disc space-y-0.5 border-t border-border px-8 py-3 text-sm text-warning">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
           </Panel>
           <Panel>
-            <PanelHeader title="Validate with the reference solution" actions={<Button onClick={onValidate} disabled={pending || !form.referenceSolution.trim() || form.tests.length === 0}>{pending ? "Running…" : "Run all tests"}</Button>} />
+            <PanelHeader title="Validate the Java reference solution" actions={<Button onClick={() => onValidate("java")} disabled={pending || !form.referenceSolution.trim() || form.tests.length === 0}>{pending ? "Running…" : "Run all tests"}</Button>} />
             <div className="p-4 text-sm">
               {!form.referenceSolution.trim() && <p className="text-muted">Add a reference solution on the “Code setup” tab to enable validation.</p>}
               {report && (
@@ -540,6 +555,30 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
               )}
             </div>
           </Panel>
+          {EXTRA_LANGUAGES.filter((l) => form.languages[l]).map((l) => {
+            const r = langReports[l];
+            return (
+              <Panel key={l}>
+                <PanelHeader title={`Validate the ${LANG_META[l].label} reference solution`} actions={<Button onClick={() => onValidate(l)} disabled={pending || !form.languages[l]?.referenceSolution.trim() || form.tests.length === 0}>{pending ? "Running…" : "Run all tests"}</Button>} />
+                <div className="p-4 text-sm">
+                  {!form.languages[l]?.referenceSolution.trim() && <p className="text-muted">Add a {LANG_META[l].label} reference solution on the “Code setup” tab to enable validation.</p>}
+                  {r && (
+                    <div className="space-y-2">
+                      <p><strong>{r.passed}/{r.total}</strong> tests passed · verdict <Badge>{r.verdict}</Badge></p>
+                      {r.compileOutput && <pre className="code-block">{r.compileOutput}</pre>}
+                      <table className="table-dense w-full text-xs">
+                        <thead><tr><th>#</th><th>Visibility</th><th>Status</th><th>Expected</th><th>Actual</th></tr></thead>
+                        <tbody>{r.tests.map((t, i) => (
+                          <tr key={t.id}><td>{i + 1}</td><td>{t.visibility}</td><td className={t.status === "passed" ? "text-success" : "text-danger"}>{t.status}</td>
+                            <td className="max-w-48 truncate font-mono">{t.expected}</td><td className="max-w-48 truncate font-mono">{t.actual ?? t.message ?? ""}</td></tr>))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </Panel>
+            );
+          })}
           {!ready && <p className="text-sm text-warning">Some checklist items are failing — publishing will be refused until they are fixed.</p>}
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" disabled={pending} onClick={onPublish}>{meta.status === "published" ? `Publish v${meta.version + (meta.versionPublished ? 1 : 0)}` : "Publish"}</Button>

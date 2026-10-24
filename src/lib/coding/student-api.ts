@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { AuthError, assertStudent, type SessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { RunnerUnavailableError } from "@/lib/runner/types";
+import { LanguageNotEnabledError } from "./context";
 
 export function jsonError(message: string, status: number, extra?: Record<string, unknown>) {
   return NextResponse.json({ error: message, ...extra }, { status });
@@ -25,6 +26,7 @@ export async function studentCanSeeVersion(versionId: string): Promise<boolean> 
 }
 
 export function runnerErrorResponse(e: unknown) {
+  if (e instanceof LanguageNotEnabledError) return jsonError(e.message, 400);
   if (e instanceof RunnerUnavailableError) return jsonError("The code execution service is not available right now. Nothing was graded — please try again shortly.", 503);
   console.error("[code api]", e);
   return jsonError("Something went wrong. Please try again.", 500);

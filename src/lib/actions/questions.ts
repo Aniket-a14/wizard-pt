@@ -6,6 +6,7 @@ import { assertAdmin } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareCoding } from "@/lib/coding/prepare";
+import type { Lang } from "@/lib/coding/languages";
 import { loadEvalContext } from "@/lib/coding/context";
 import { evaluate } from "@/lib/coding/evaluate";
 import { checkTestInputShape, parseSignature } from "@/lib/coding/signature";
@@ -107,6 +108,8 @@ export async function publishCodingQuestion(questionId: string): Promise<ActionR
 }
 
 export interface ValidationReport {
+  /** Reports for the optional languages (C++ / C); the top-level fields are the Java run. */
+  byLanguage?: Partial<Record<"cpp" | "c", Omit<ValidationReport, "byLanguage">>>;
   verdict: string;
   passed: number;
   total: number;
@@ -116,17 +119,17 @@ export interface ValidationReport {
 }
 
 /** Run the stored reference solution against every configured test (public + hidden). */
-export async function validateWithReference(versionId: string): Promise<ActionResult<{ report: ValidationReport }>> {
+export async function validateWithReference(versionId: string, language: Lang = "java"): Promise<ActionResult<{ report: ValidationReport }>> {
   try {
     await assertAdmin();
-    const ctx = await loadEvalContext(versionId);
+    const ctx = await loadEvalContext(versionId, language);
     if (!ctx) return { ok: false, error: "Configuration not found. Save the problem first." };
     if (!ctx.referenceSolution?.trim()) return { ok: false, error: "Add a reference solution first." };
     if (ctx.tests.length === 0) return { ok: false, error: "Add test cases first." };
 
     const out = await evaluate({ config: ctx.config, tests: ctx.tests, studentCode: ctx.referenceSolution, runner: getRunner() });
     if (out.systemError) return { ok: false, error: `The code runner is unavailable: ${out.systemError}` };
-    const report: ValidationReport = {
+    const run: Omit<ValidationReport, "byLanguage"> = {
       verdict: out.summary.verdict,
       passed: out.full.filter((t) => t.status === "passed").length,
       total: out.full.length,
@@ -135,8 +138,13 @@ export async function validateWithReference(versionId: string): Promise<ActionRe
       ranAt: new Date().toISOString(),
     };
     const supabase = await createClient();
+    // Keep the other languages' reports: the Java run is the top level, the rest live under byLanguage.
+    const prev = ((await supabase.from("coding_secrets").select("last_validation").eq("question_version_id", versionId).maybeSingle()).data?.last_validation ?? null) as ValidationReport | null;
+    const report: ValidationReport = language === "java"
+      ? { ...run, byLanguage: prev?.byLanguage }
+      : { ...(prev ?? { verdict: "", passed: 0, total: 0, compileOutput: null, tests: [], ranAt: run.ranAt }), byLanguage: { ...(prev?.byLanguage ?? {}), [language]: run } };
     await supabase.from("coding_secrets").update({ last_validation: report as unknown as NonNullable<Json> }).eq("question_version_id", versionId);
-    return { ok: true, report };
+    return { ok: true, report: language === "java" ? report : { ...run, byLanguage: report.byLanguage } };
   } catch (e) {
     return toActionError(e);
   }

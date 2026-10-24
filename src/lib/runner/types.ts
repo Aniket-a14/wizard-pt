@@ -1,4 +1,8 @@
+export type RunLanguage = "java" | "cpp" | "c";
+
 export interface RunJob {
+  /** Defaults to Java. */
+  language?: RunLanguage;
   source: string;
   stdin: string;
   timeLimitMs: number;

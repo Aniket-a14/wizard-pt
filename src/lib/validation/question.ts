@@ -31,6 +31,16 @@ export const testCaseSchema = z.object({
   label: text(80).nullable().optional(),
 });
 
+/** An optional language (C++ / C) enabled for a coding problem. Its presence in `languages` means "enabled". */
+export const languageVariantSchema = z.object({
+  /** Reference solution in this language; the problem is verified against every test for each enabled language. */
+  reference_solution: text(60_000).default(""),
+  /** Optional full-program boilerplate with STUDENT CODE START/END markers (custom drivers); otherwise generated. */
+  boilerplate_source: text(60_000).default(""),
+  /** Optional starter override; otherwise generated from the signature. */
+  starter_code: text(60_000).default(""),
+});
+
 export const codingDraftSchema = z.object({
   questionId: z.string().uuid().nullable(),
   ...metadata,
@@ -54,6 +64,7 @@ export const codingDraftSchema = z.object({
   }),
   boilerplate_source: text(60_000).default(""),
   reference_solution: text(60_000).default(""),
+  languages: z.object({ cpp: languageVariantSchema.optional(), c: languageVariantSchema.optional() }).default({}),
   tests: z.array(testCaseSchema).max(200).default([]),
 });
 export type CodingDraftInput = z.input<typeof codingDraftSchema>;

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/form";
 import { saveDraft } from "@/lib/actions/drafts";
+import { LANG_META, type Lang } from "@/lib/coding/languages";
 import { VERDICT_LABEL, type Verdict } from "@/lib/coding/score";
 import { cn, formatDateTime } from "@/lib/utils";
 
@@ -37,6 +38,9 @@ export interface WorkspaceProblem {
   editableScope: "method" | "body";
   functionSignature: string | null;
   starterCode: string;
+  /** The language being edited, and every language this problem accepts. */
+  language: Lang;
+  languages: Lang[];
   timeLimitMs: number;
   memoryLimitMb: number;
   allowCustomInput: boolean;
@@ -56,6 +60,7 @@ export interface SubmissionSummary {
   execTimeMs: number | null;
   submittedAt: string;
   version: number;
+  language: Lang;
   hasFeedback: boolean;
 }
 
@@ -135,12 +140,12 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
     if (codeRef.current === lastSaved.current) return;
     const snapshot = codeRef.current;
     setSaveState("saving");
-    const r = await saveDraft({ versionId: p.versionId, code: snapshot });
+    const r = await saveDraft({ versionId: p.versionId, code: snapshot, language: p.language });
     if (r.ok) {
       lastSaved.current = snapshot;
       setSaveState(codeRef.current === snapshot ? "saved" : "unsaved");
     } else setSaveState("error");
-  }, [p.versionId]);
+  }, [p.versionId, p.language]);
 
   useEffect(() => {
     if (code === lastSaved.current) return;
@@ -175,7 +180,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
       setTab("results");
       setOutcome(null);
       try {
-        const res = await fetch("/api/code/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: p.versionId, code: codeRef.current, customInput: withCustom ? customInput : undefined }) });
+        const res = await fetch("/api/code/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: p.versionId, code: codeRef.current, language: p.language, customInput: withCustom ? customInput : undefined }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           setOutcome({ kind: "run", verdict: null, compileOutput: null, passedPublic: 0, totalPublic: 0, execTimeMs: null, results: [], error: data.error ?? "Run failed", unavailable: res.status === 503 });
@@ -191,7 +196,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
         setBusy(null);
       }
     },
-    [busy, customInput, p.versionId, externalRunner],
+    [busy, customInput, p.versionId, p.language, externalRunner],
   );
 
   const submitKey = useRef<string | null>(null);
@@ -207,7 +212,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
     // One idempotency key per click-through so network retries / double clicks can never create duplicates.
     submitKey.current = submitKey.current ?? crypto.randomUUID();
     try {
-      const res = await fetch("/api/code/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: p.versionId, code: codeRef.current, idempotencyKey: submitKey.current }) });
+      const res = await fetch("/api/code/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: p.versionId, code: codeRef.current, language: p.language, idempotencyKey: submitKey.current }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         submitKey.current = null;
@@ -220,7 +225,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
         // Nothing is graded here: the submission is saved and the instructor evaluates it.
         submitKey.current = null;
         setOutcome({ kind: "submit", verdict: null, compileOutput: null, passedPublic: 0, totalPublic: 0, execTimeMs: null, results: [], submissionId: id, pending: true });
-        setSubs((cur) => [{ id, status: "queued", verdict: null, scorePct: null, passedPublic: null, totalPublic: null, passedHidden: null, totalHidden: null, execTimeMs: null, submittedAt: new Date().toISOString(), version: p.version, hasFeedback: false }, ...cur.filter((x) => x.id !== id)]);
+        setSubs((cur) => [{ id, status: "queued", verdict: null, scorePct: null, passedPublic: null, totalPublic: null, passedHidden: null, totalHidden: null, execTimeMs: null, submittedAt: new Date().toISOString(), version: p.version, language: p.language, hasFeedback: false }, ...cur.filter((x) => x.id !== id)]);
         toast.success("Submitted — your instructor will evaluate it");
         router.refresh(); // lists and counts elsewhere must not serve a cached copy
         setBusy(null);
@@ -257,7 +262,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
               error: s.status === "system_error" ? s.error_message ?? "Evaluation unavailable." : undefined,
               unavailable: s.status === "system_error",
             });
-            setSubs((cur) => [{ id, status: s.status, verdict: s.verdict, scorePct: s.score_pct === null ? null : Number(s.score_pct), passedPublic: s.passed_public, totalPublic: s.total_public, passedHidden: s.passed_hidden, totalHidden: s.total_hidden, execTimeMs: s.exec_time_ms, submittedAt: s.submitted_at, version: p.version, hasFeedback: false }, ...cur.filter((x) => x.id !== id)]);
+            setSubs((cur) => [{ id, status: s.status, verdict: s.verdict, scorePct: s.score_pct === null ? null : Number(s.score_pct), passedPublic: s.passed_public, totalPublic: s.total_public, passedHidden: s.passed_hidden, totalHidden: s.total_hidden, execTimeMs: s.exec_time_ms, submittedAt: s.submitted_at, version: p.version, language: p.language, hasFeedback: false }, ...cur.filter((x) => x.id !== id)]);
             if (s.status === "completed") toast.success(`Submitted — ${VERDICT_LABEL[s.verdict as Verdict] ?? s.verdict}`);
             router.refresh();
             setBusy(null);
@@ -270,7 +275,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
       setOutcome((o) => ({ ...(o ?? { kind: "submit", verdict: null, compileOutput: null, passedPublic: 0, totalPublic: 0, execTimeMs: null, results: [] }), error: "Still evaluating. Your submission is saved — check the Submissions tab in a moment." }));
       setBusy(null);
     }
-  }, [busy, p.versionId, p.version, persist, externalRunner, router]);
+  }, [busy, p.versionId, p.version, p.language, persist, externalRunner, router]);
 
   async function retryEvaluation(id: string) {
     const res = await fetch(`/api/code/submissions/${id}`, { method: "POST" });
@@ -292,11 +297,11 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
 
   async function copyProgram() {
     try {
-      const res = await fetch("/api/code/program", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: p.versionId, code: codeRef.current }) });
+      const res = await fetch("/api/code/program", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: p.versionId, code: codeRef.current, language: p.language }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return void toast.error(data.error ?? "Could not build the program.");
       await navigator.clipboard.writeText(data.source);
-      toast.success("Full program copied — paste it into an online Java compiler");
+      toast.success(`Full program copied — paste it into an online ${LANG_META[p.language].label} compiler`);
     } catch {
       toast.error("Could not copy. Check your connection and clipboard permission.");
     }
@@ -345,7 +350,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           {p.topic && <span>{p.topic}</span>}{p.company && <span>{p.company}</span>}<span>{p.marks} marks</span>
-          {p.estMinutes && <span>~{p.estMinutes} min</span>}<span>Java</span><span>{p.timeLimitMs / 1000}s · {p.memoryLimitMb} MB per test</span>
+          {p.estMinutes && <span>~{p.estMinutes} min</span>}<span>{LANG_META[p.language].label}</span><span>{p.timeLimitMs / 1000}s · {p.memoryLimitMb} MB per test</span>
         </div>
       </div>
       <Markdown>{p.statement_md}</Markdown>
@@ -383,7 +388,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "description" && description}
-        {tab === "results" && <ResultsPanel outcome={outcome} busy={busy} tests={p.publicTests} onRetry={retryEvaluation} externalRunner={externalRunner} />}
+        {tab === "results" && <ResultsPanel outcome={outcome} busy={busy} tests={p.publicTests} onRetry={retryEvaluation} externalRunner={externalRunner} language={p.language} />}
         {tab === "submissions" && <SubmissionsPanel subs={subs} />}
       </div>
     </div>
@@ -392,7 +397,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
   const right = (
     <div className="flex h-full min-h-0 flex-col" style={{ background: theme === "vs-dark" ? "var(--code-bg)" : "var(--surface)" }}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-1.5">
-        <Badge>Java</Badge>
+        <LanguagePicker problem={p} flush={persist} />
         <span className="text-xs text-muted" aria-live="polite">{saveState === "saved" ? "Draft saved" : saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save draft — will retry" : "Unsaved changes"}</span>
         <div className="ml-auto flex flex-wrap items-center gap-1">
           <Button size="sm" variant="ghost" onClick={() => bumpFont(-1)} aria-label="Smaller font">A−</Button>
@@ -401,7 +406,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
           <Button size="sm" variant="ghost" onClick={onReset}>Reset</Button>
           {externalRunner ? (
             <>
-              <Button size="sm" onClick={() => void copyProgram()} title="Copy the complete runnable Main.java">Copy program</Button>
+              <Button size="sm" onClick={() => void copyProgram()} title={`Copy the complete runnable ${LANG_META[p.language].file}`}>Copy program</Button>
               <Button size="sm" variant="primary" onClick={() => void submit()} disabled={busy !== null} title="Submit for review (Ctrl/Cmd+Shift+Enter)">{busy === "submit" ? "Submitting…" : "Submit for review"}</Button>
             </>
           ) : (
@@ -420,7 +425,8 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
           onChange={setCode}
           theme={theme}
           fontSize={fontSize}
-          ariaLabel="Java code editor"
+          ariaLabel={`${LANG_META[p.language].label} code editor`}
+          language={LANG_META[p.language].monaco}
           onMount={(editor, monaco) => {
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => void runRef.current(false));
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => void submitRef.current());
@@ -466,7 +472,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function ResultsPanel({ outcome, busy, tests, onRetry, externalRunner }: { outcome: RunOutcome | null; busy: null | "run" | "submit"; tests: WorkspaceProblem["publicTests"]; onRetry: (id: string) => void; externalRunner: boolean }) {
+function ResultsPanel({ outcome, busy, tests, onRetry, externalRunner, language }: { language: Lang; outcome: RunOutcome | null; busy: null | "run" | "submit"; tests: WorkspaceProblem["publicTests"]; onRetry: (id: string) => void; externalRunner: boolean }) {
   if (busy && !outcome?.verdict) {
     return <div className="p-6 text-sm text-muted" role="status">{busy === "run" ? "Compiling and running your code in an isolated sandbox…" : "Evaluating your submission against all tests…"}</div>;
   }
@@ -487,7 +493,7 @@ function ResultsPanel({ outcome, busy, tests, onRetry, externalRunner }: { outco
           <div className="space-y-1 rounded-md bg-surface-2 p-3 text-muted">
             <p className="font-medium text-foreground">How to test your code</p>
             <ol className="list-decimal space-y-1 pl-5">
-              <li>Press <b>Copy program</b> (top right of the editor) and paste it into any online Java compiler.</li>
+              <li>Press <b>Copy program</b> (top right of the editor) and paste it into any online {LANG_META[language].label} compiler.</li>
               <li>Paste a sample input below into the compiler&apos;s <b>stdin / input</b> box and run it.</li>
               <li>Your answer is the text between the <code>@@WPT_RESULT_BEGIN@@</code> and <code>@@WPT_RESULT_END@@</code> lines. Compare it with <b>Expected</b>.</li>
               <li>Paste your final code back here (only the part you edit) and press <b>Submit for review</b>.</li>
@@ -596,10 +602,35 @@ function SubmissionsPanel({ subs }: { subs: SubmissionSummary[] }) {
             <span className="text-xs text-muted">{s.passedPublic ?? 0}/{s.totalPublic ?? 0} public · {s.passedHidden ?? 0}/{s.totalHidden ?? 0} hidden</span>
             {s.hasFeedback && <Badge tone="accent">feedback</Badge>}
             {s.version > 1 && <span className="text-xs text-muted">v{s.version}</span>}
+            <Badge>{LANG_META[s.language].label}</Badge>
             <span className="ml-auto text-xs text-muted">{formatDateTime(s.submittedAt)}</span>
           </Link>
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Switch the language: save the current draft first, remember the choice, then reload the workspace for it. */
+function LanguagePicker({ problem: p, flush }: { problem: WorkspaceProblem; flush: () => Promise<void> }) {
+  const router = useRouter();
+  if (p.languages.length < 2) return <Badge>{LANG_META[p.language].label}</Badge>;
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-muted">
+      Language
+      <select
+        aria-label="Programming language"
+        className="h-7 rounded-md border border-border-strong bg-surface px-1.5 text-sm text-foreground"
+        value={p.language}
+        onChange={async (e) => {
+          const next = e.target.value as Lang;
+          await flush();
+          try { document.cookie = `wpt-lang=${next}; path=/; max-age=31536000; samesite=lax`; } catch {}
+          router.replace(`?lang=${next}`);
+        }}
+      >
+        {p.languages.map((l) => <option key={l} value={l}>{LANG_META[l].label}</option>)}
+      </select>
+    </label>
   );
 }

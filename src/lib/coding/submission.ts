@@ -1,3 +1,4 @@
+import { isLang } from "./languages";
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRunner } from "@/lib/runner";
@@ -32,14 +33,14 @@ export async function processSubmission(submissionId: string, opts: ProcessOptio
     .update({ status: "running", claimed_at: new Date().toISOString() })
     .eq("id", submissionId)
     .or(`status.eq.queued,and(status.eq.running,claimed_at.lt.${staleBefore})`)
-    .select("id, student_id, question_version_id, source_code, attempts_count")
+    .select("id, student_id, question_version_id, source_code, language, attempts_count")
     .maybeSingle();
   if (claim.error || !claim.data) return;
   const sub = claim.data;
   await db.from("code_submissions").update({ attempts_count: sub.attempts_count + 1 }).eq("id", sub.id);
 
   try {
-    const ctx = await loadEvalContext(sub.question_version_id);
+    const ctx = await loadEvalContext(sub.question_version_id, isLang(sub.language) ? sub.language : "java");
     if (!ctx) throw new Error("Problem configuration missing");
 
     if (ctx.gradingMode === "manual" || ctx.tests.length === 0) {

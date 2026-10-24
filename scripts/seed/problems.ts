@@ -23,6 +23,12 @@ export interface SeedProblem {
   boilerplate?: string;
   compare?: "exact" | "trim" | "tokens" | "float" | "json" | "unordered" | "unordered_deep";
   reference: string;
+  /**
+   * Optional extra languages. Each needs its own reference solution; the C++ / C wrapper is generated from the
+   * same Java `signature` (C only supports a subset of types — see harness-c.ts). `boilerplate` / `starter` override
+   * the generated ones (custom drivers).
+   */
+  languages?: Partial<Record<"cpp" | "c", { reference: string; boilerplate?: string; starter?: string }>>;
   publicTests: { input: string; output: string }[];
   hiddenTests: { input: string; output: string; label?: string }[];
   marks?: number;

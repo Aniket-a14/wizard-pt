@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { loadEvalContext } from "@/lib/coding/context";
+import { loadEvalContext, type EvalContext } from "@/lib/coding/context";
+import { LANGUAGES } from "@/lib/coding/languages";
 import { CodeValidationError } from "@/lib/coding/compose";
 import { evaluate, evaluateCustom } from "@/lib/coding/evaluate";
 import { getRunner } from "@/lib/runner";
@@ -14,6 +15,7 @@ const body = z.object({
   versionId: z.string().uuid(),
   code: z.string().max(70_000),
   customInput: z.string().max(100_000).optional(),
+  language: z.enum(LANGUAGES).default("java"),
 });
 
 const RUNS_PER_MINUTE = 8;
@@ -22,11 +24,11 @@ export async function POST(req: NextRequest) {
   const user = await studentOr401();
   if (user instanceof NextResponse) return user;
 
-  if (isExternalRunnerMode()) return jsonError("Running code is not available on this site. Copy the program into an online Java compiler, then submit it for review.", 409);
+  if (isExternalRunnerMode()) return jsonError("Running code is not available on this site. Copy the program into an online compiler, then submit it for review.", 409);
 
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return jsonError("Invalid request.", 400);
-  const { versionId, code, customInput } = parsed.data;
+  const { versionId, code, customInput, language } = parsed.data;
 
   if (!(await studentCanSeeVersion(versionId))) return jsonError("Problem not found.", 404);
 
@@ -35,7 +37,12 @@ export async function POST(req: NextRequest) {
   const recent = await db.from("code_runs").select("id", { count: "exact", head: true }).eq("student_id", user.id).gte("created_at", since);
   if ((recent.count ?? 0) >= RUNS_PER_MINUTE) return jsonError("You're running code too quickly. Wait a few seconds and try again.", 429);
 
-  const ctx = await loadEvalContext(versionId);
+  let ctx: EvalContext | null;
+  try {
+    ctx = await loadEvalContext(versionId, language);
+  } catch (e) {
+    return runnerErrorResponse(e);
+  }
   if (!ctx) return jsonError("Problem not found.", 404);
 
   try {

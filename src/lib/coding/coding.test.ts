@@ -331,3 +331,157 @@ describe("prepareCoding", () => {
     expect(r.ok && r.warnings.some((w) => /Missing/.test(w))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------- languages (C++ / C)
+import { prepareCoding as prepareLang } from "./prepare";
+import { codingDraftSchema as draftSchema } from "@/lib/validation/question";
+import { buildCppTemplate, cppDeclaration } from "./harness-cpp";
+import { buildCTemplate, cDeclaration, cUnsupportedReason } from "./harness-c";
+import { declaredName } from "./languages";
+import { parseSignature as parseSig } from "./signature";
+
+describe("C++ / C: derived declarations", () => {
+  it("derives C++ declarations from the Java signature", () => {
+    expect(cppDeclaration(parseSig("public static int countTwinCodes(ArrayList<String> codes)"))).toBe("int countTwinCodes(vector<string>& codes)");
+    expect(cppDeclaration(parseSig("public static String maskCode(String code)"))).toBe("string maskCode(string code)");
+    expect(cppDeclaration(parseSig("public static List<List<Integer>> subsets(int[] nums)"))).toBe("vector<vector<int>> subsets(vector<int>& nums)");
+    expect(cppDeclaration(parseSig("public static void rotate(int[][] m)"))).toBe("void rotate(vector<vector<int>>& m)");
+    expect(cppDeclaration(parseSig("public static ListNode reverse(ListNode head)"))).toBe("ListNode* reverse(ListNode* head)");
+    expect(cppDeclaration(parseSig("public static Map<String,Integer> f(Set<Long> s, long x)"))).toBe("map<string, int> f(set<long long>& s, long long x)");
+  });
+
+  it("derives LeetCode-style C declarations with size parameters", () => {
+    expect(cDeclaration(parseSig("public static int[] twoSum(int[] nums, int target)"))).toBe("int* twoSum(int* nums, int numsSize, int target, int* returnSize)");
+    expect(cDeclaration(parseSig("public static String maskCode(String code)"))).toBe("char* maskCode(char* code)");
+    expect(cDeclaration(parseSig("public static int[][] f(int[][] g)"))).toBe("int** f(int** g, int gSize, int* gColSize, int* returnSize, int** returnColumnSizes)");
+    expect(cDeclaration(parseSig("public static boolean isPalin(String s)"))).toBe("bool isPalin(char* s)");
+    expect(cDeclaration(parseSig("public static TreeNode invert(TreeNode r)"))).toBe("struct TreeNode* invert(struct TreeNode* r)");
+  });
+
+  it("explains why C cannot express a signature", () => {
+    expect(cUnsupportedReason(parseSig("public static int f(int[] a)"))).toBeNull();
+    expect(cUnsupportedReason(parseSig("public static List<Integer> f(int n)"))).toMatch(/C cannot express the return value of type List<Integer>/);
+    expect(cUnsupportedReason(parseSig("public static int f(Map<String,Integer> m)"))).toMatch(/parameter "m"/);
+    expect(cUnsupportedReason(parseSig("public static int f(int[] a, int aSize)"))).toMatch(/clashes with a generated size parameter/);
+  });
+
+  it("generated wrappers print the shared result markers and mark the editable region", () => {
+    for (const tpl of [buildCppTemplate(parseSig("public static int f(int n)")), buildCTemplate(parseSig("public static int f(int n)"))]) {
+      expect(tpl.suffix).toContain("@@WPT_RESULT_BEGIN@@");
+      expect(tpl.suffix).toContain("@@WPT_RESULT_END@@");
+      expect(tpl.prefix.trimEnd().endsWith("// ==== STUDENT CODE START ====")).toBe(true);
+      expect(tpl.suffix.startsWith("// ==== STUDENT CODE END ====")).toBe(true);
+      expect(tpl.starterMethod).toContain("Write your solution here");
+    }
+  });
+
+  it("only includes the helpers a problem needs", () => {
+    const small = buildCTemplate(parseSig("public static int f(int n)")).suffix;
+    expect(small).not.toContain("wptFmtD");
+    expect(small).not.toContain("struct TreeNode");
+    const withDouble = buildCTemplate(parseSig("public static double f(int n)")).suffix;
+    expect(withDouble).toContain("wptFmtD");
+  });
+});
+
+describe("C++ / C: student code handling", () => {
+  it("names the function in a language-specific declaration", () => {
+    expect(declaredName("int countTwinCodes(vector<string>& codes)")).toBe("countTwinCodes");
+    expect(declaredName("struct ListNode* reverse(struct ListNode* head)")).toBe("reverse");
+  });
+
+  it("drops a pasted main() but keeps lines and ignores look-alikes", () => {
+    const code = ['int f(int n) { return n; }', "", "int main() {", '  printf("}{ main(");', "  return 0;", "}"].join("\n");
+    const out = stripStudentMain(code, "cpp");
+    expect(out).not.toMatch(/int\s+main/);
+    expect(out).toContain("int f(int n)");
+    expect(out.split("\n").length).toBe(code.split("\n").length);
+    const keep = '// int main() {}\nconst char* s = "int main(";\nint f(int n) { return n; }';
+    expect(stripStudentMain(keep, "c")).toBe(keep);
+    // `void main(...)` is not valid C/C++ either (g++ demands int), so a stray one is dropped too
+    expect(stripStudentMain("void main() { }\nint f() { return 1; }", "cpp")).not.toContain("main(");
+  });
+
+  it("validates program mode and method names per language", () => {
+    const prog = { executionMode: "program" as const, editableScope: "method" as const, functionSignature: null };
+    expect(() => validateStudentCode("int x;", { ...prog, language: "cpp" })).toThrow(/needs a `main` function/);
+    expect(() => validateStudentCode("int main(){return 0;}", { ...prog, language: "c" })).not.toThrow();
+    expect(() => validateStudentCode("int main(){return 0;}", { ...prog, language: "java" })).toThrow(/class Main/);
+    const fn = { executionMode: "function" as const, editableScope: "method" as const, functionSignature: "int countTwinCodes(vector<string>& codes)", language: "cpp" as const };
+    expect(() => validateStudentCode("int other() { return 1; }", fn)).toThrow(/must define the method `countTwinCodes`/);
+    expect(() => validateStudentCode("int countTwinCodes(vector<string>& c) { return 1; }", fn)).not.toThrow();
+  });
+
+  it("maps gcc and g++ compile errors to editor lines", () => {
+    const out = "main.cpp: In function 'int f(int)':\nmain.cpp:12:7: error: expected primary-expression\nmain.cpp:2:1: note: wrapper";
+    // student's code starts at wrapper line 10 and has 5 lines
+    expect(mapCompileOutput(out, 10, 5)).toBe("main.cpp: In function 'int f(int)':\nLine 2: error: expected primary-expression\nLine (platform wrapper): note: wrapper");
+    expect(mapCompileOutput("main.c:11:3: warning: x", 10, 5)).toBe("Line 1: warning: x");
+    expect(mapCompileOutput("Main.java:12: error: x", 10, 5)).toBe("Line 2: error: x");
+  });
+});
+
+describe("C++ / C: preparing a problem", () => {
+  const base = {
+    questionId: null, title: "T", statement_md: "s",
+    config: { execution_mode: "function" as const, function_signature: "public static int[] twoSum(int[] nums, int target)", starter_code: "" },
+    tests: [{ input: "2 7\n9", expected_output: "0 1", visibility: "public" as const }, { input: "1 2\n3", expected_output: "0 1", visibility: "hidden" as const }],
+  };
+
+  it("stores a student-visible declaration + starter and private wrapper + reference for each enabled language", () => {
+    const d = draftSchema.parse({ ...base, languages: { cpp: { reference_solution: "// cpp ref" }, c: { reference_solution: "/* c ref */" } } });
+    const r = prepareLang(d);
+    if (!r.ok) throw new Error(r.error);
+    const cfg = r.payload.config as { variants: Record<string, { function_signature: string; starter_code: string }> };
+    const sec = r.payload.secrets as { variants: Record<string, { template_suffix: string; reference_solution: string }> };
+    expect(cfg.variants.cpp.function_signature).toBe("vector<int> twoSum(vector<int>& nums, int target)");
+    expect(cfg.variants.cpp.starter_code).toContain("vector<int> twoSum(vector<int>& nums, int target) {");
+    expect(cfg.variants.c.function_signature).toBe("int* twoSum(int* nums, int numsSize, int target, int* returnSize)");
+    // the student-visible half never carries wrapper code or reference solutions
+    expect(JSON.stringify(cfg)).not.toContain("WPT_RESULT");
+    expect(JSON.stringify(cfg)).not.toContain("ref");
+    expect(sec.variants.cpp.template_suffix).toContain("WPT_RESULT_BEGIN");
+    expect(sec.variants.cpp.reference_solution).toBe("// cpp ref");
+  });
+
+  it("rejects C for a signature C cannot express, but still allows C++", () => {
+    const d = draftSchema.parse({ ...base, config: { ...base.config, function_signature: "public static List<Integer> f(int n)" }, languages: { cpp: { reference_solution: "x" }, c: { reference_solution: "x" } } });
+    const r = prepareLang(d);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(Object.keys(r.fieldErrors)).toEqual(["languages.c"]);
+      expect(r.fieldErrors["languages.c"]).toMatch(/^C: C cannot express/);
+    }
+    const onlyCpp = prepareLang(draftSchema.parse({ ...base, config: { ...base.config, function_signature: "public static List<Integer> f(int n)" }, languages: { cpp: { reference_solution: "x" } } }));
+    expect(onlyCpp.ok).toBe(true);
+  });
+
+  it("a custom-driver problem needs the driver written in each extra language", () => {
+    const javaDriver = "public class Main {\n// ==== STUDENT CODE START ====\n// ==== STUDENT CODE END ====\npublic static void main(String[] a){}\n}";
+    const noDriver = prepareLang(draftSchema.parse({ ...base, config: { ...base.config, function_signature: "" }, boilerplate_source: javaDriver, languages: { cpp: { reference_solution: "x" } } }));
+    expect(noDriver.ok).toBe(false);
+    const cppDriver = "#include <iostream>\n// ==== STUDENT CODE START ====\n// ==== STUDENT CODE END ====\nint main(){ return 0; }";
+    const ok = prepareLang(draftSchema.parse({ ...base, config: { ...base.config, function_signature: "" }, boilerplate_source: javaDriver, languages: { cpp: { reference_solution: "x", boilerplate_source: cppDriver } } }));
+    expect(ok.ok).toBe(true);
+  });
+
+  it("full-program mode gets a plain starter per language", () => {
+    const r = prepareLang(draftSchema.parse({ ...base, config: { execution_mode: "program" }, languages: { cpp: { reference_solution: "x" }, c: { reference_solution: "x" } } }));
+    if (!r.ok) throw new Error(r.error);
+    const cfg = r.payload.config as { variants: Record<string, { starter_code: string }> };
+    expect(cfg.variants.cpp.starter_code).toContain("int main()");
+    expect(cfg.variants.c.starter_code).toContain("int main(void)");
+  });
+
+  it("warns when an enabled language has no reference solution", () => {
+    const r = prepareLang(draftSchema.parse({ ...base, languages: { cpp: {} } }));
+    if (!r.ok) throw new Error(r.error);
+    expect(r.warnings.join(" ")).toMatch(/C\+\+ has no reference solution/);
+  });
+
+  it("no languages = Java only (nothing stored)", () => {
+    const r = prepareLang(draftSchema.parse(base));
+    if (!r.ok) throw new Error(r.error);
+    expect((r.payload.config as { variants: object }).variants).toEqual({});
+  });
+});

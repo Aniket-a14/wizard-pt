@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { CodeViewer } from "@/components/code-editor";
+import { isLang, LANG_META } from "@/lib/coding/languages";
 import { Badge, DifficultyBadge, ReviewBadge, VerdictBadge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader, Panel, PanelHeader } from "@/components/ui/panel";
@@ -22,6 +23,7 @@ export default async function SubmissionDetail({ params }: PageProps<"/student/s
   const s = await supabase.from("code_submissions").select("*, v:question_versions(id, question_id, version, title, difficulty)").eq("id", id).eq("student_id", user.id).maybeSingle();
   if (!s.data) notFound();
   const sub = s.data;
+  const lang = isLang(sub.language) ? sub.language : "java";
   const [review, others] = await Promise.all([
     supabase.from("reviews").select("status, marks, max_marks, comments, suggestions, explanation, published_at").eq("code_submission_id", id).not("published_at", "is", null).maybeSingle(),
     supabase.from("code_submissions").select("id, verdict, score_pct, submitted_at, v:question_versions!inner(question_id)").eq("student_id", user.id).eq("v.question_id", sub.v?.question_id ?? "").order("submitted_at", { ascending: false }),
@@ -74,7 +76,7 @@ export default async function SubmissionDetail({ params }: PageProps<"/student/s
           </Panel>
           <Panel>
             <PanelHeader title="Your submitted code (exact snapshot)" />
-            <div className="p-4"><CodeViewer code={sub.source_code} /></div>
+            <div className="p-4"><CodeViewer code={sub.source_code} language={LANG_META[lang].monaco} /></div>
           </Panel>
         </div>
         <div className="space-y-5">
@@ -107,7 +109,7 @@ export default async function SubmissionDetail({ params }: PageProps<"/student/s
               ))}
             </ul>
           </Panel>
-          {sub.v && <div className="flex items-center gap-2 text-xs text-muted"><DifficultyBadge level={sub.v.difficulty} /> <Badge>Java</Badge></div>}
+          {sub.v && <div className="flex items-center gap-2 text-xs text-muted"><DifficultyBadge level={sub.v.difficulty} /> <Badge>{LANG_META[lang].label}</Badge></div>}
         </div>
       </div>
     </>

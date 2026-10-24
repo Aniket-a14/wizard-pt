@@ -16,6 +16,7 @@ import { buildFunctionTemplate } from "../../src/lib/coding/harness";
 import type { Runner } from "../../src/lib/runner/types";
 import type { CompareMode } from "../../src/lib/coding/compare";
 import type { SeedProblem } from "../seed/problems";
+import { LANG_META, type ExtraLang, type Lang, type VariantsPublic, type VariantsSecret } from "../../src/lib/coding/languages";
 
 export interface PublishContext {
   /** Signed in as the admin user (RLS + assert_admin apply, exactly like the UI). */
@@ -65,6 +66,7 @@ export async function createProblem(ctx: PublishContext, p: SeedProblem, opts: {
     },
     reference_solution: p.reference,
     boilerplate_source: p.boilerplate ?? "",
+    languages: Object.fromEntries(Object.entries(p.languages ?? {}).map(([l, v]) => [l, { reference_solution: v.reference, boilerplate_source: v.boilerplate ?? "", starter_code: v.starter ?? "" }])),
     tests,
   });
   const prep = prepareCoding(draft);
@@ -75,26 +77,48 @@ export async function createProblem(ctx: PublishContext, p: SeedProblem, opts: {
 
   let verified = false;
   if (runnerOk) {
-    const cfg = prep.payload.config as { editable_scope: "method" | "body"; time_limit_ms: number; memory_limit_mb: number; compare_mode: CompareMode; float_tolerance: number; reveal_hidden: boolean };
-    const sec = prep.payload.secrets as { template_prefix: string; template_suffix: string };
-    const out = await evaluate({
-      config: {
-        executionMode: p.mode, editableScope: cfg.editable_scope, functionSignature: sig || null,
-        templatePrefix: sec.template_prefix, templateSuffix: sec.template_suffix,
-        timeLimitMs: cfg.time_limit_ms, memoryLimitMb: cfg.memory_limit_mb, compareMode: cfg.compare_mode, floatTolerance: cfg.float_tolerance, revealHidden: false,
-      },
-      tests: tests.map((t, i) => ({ id: String(i), input: t.input, expectedOutput: t.expected_output, visibility: t.visibility, weight: 1 })),
-      studentCode: p.reference,
-      runner,
-    });
-    const passed = out.full.filter((t) => t.status === "passed").length;
-    verified = out.summary.verdict === "accepted";
-    await svc.from("coding_secrets").update({ last_validation: { verdict: out.summary.verdict, passed, total: out.full.length, tests: [], compileOutput: out.compileOutput, ranAt: new Date().toISOString() } as Json }).eq("question_version_id", version_id);
-    console.log(`  ${verified ? "✓" : "✗"} ${p.title}: reference passes ${passed}/${out.full.length}`);
-    if (!verified) {
-      console.error(out.compileOutput ? `    compile output: ${out.compileOutput}` : "");
-      console.error(out.full.filter((t) => t.status !== "passed").map((t) => `    test ${t.testId}: ${t.status} ${t.message ?? ""}`).join("\n"));
+    const cfg = prep.payload.config as {
+      editable_scope: "method" | "body"; time_limit_ms: number; memory_limit_mb: number; compare_mode: CompareMode; float_tolerance: number; reveal_hidden: boolean;
+      variants: VariantsPublic;
+    };
+    const sec = prep.payload.secrets as { template_prefix: string; template_suffix: string; variants: VariantsSecret };
+    const evalTests = tests.map((t, i) => ({ id: String(i), input: t.input, expectedOutput: t.expected_output, visibility: t.visibility, weight: 1 }));
+
+    /** Run one language's reference solution against EVERY test; the problem is only as verified as its worst language. */
+    const verifyLang = async (lang: Lang) => {
+      const v = lang === "java" ? null : { pub: cfg.variants[lang as ExtraLang]!, sec: sec.variants[lang as ExtraLang]! };
+      const out = await evaluate({
+        config: {
+          language: lang,
+          executionMode: p.mode, editableScope: cfg.editable_scope,
+          functionSignature: (v ? v.pub.function_signature : sig) || null,
+          templatePrefix: v ? v.sec.template_prefix : sec.template_prefix, templateSuffix: v ? v.sec.template_suffix : sec.template_suffix,
+          timeLimitMs: cfg.time_limit_ms, memoryLimitMb: cfg.memory_limit_mb, compareMode: cfg.compare_mode, floatTolerance: cfg.float_tolerance, revealHidden: false,
+        },
+        tests: evalTests,
+        studentCode: v ? v.sec.reference_solution : p.reference,
+        runner,
+      });
+      const passed = out.full.filter((t) => t.status === "passed").length;
+      const ok = out.summary.verdict === "accepted";
+      console.log(`  ${ok ? "✓" : "✗"} ${p.title} [${LANG_META[lang].label}]: reference passes ${passed}/${out.full.length}`);
+      if (!ok) {
+        console.error(out.compileOutput ? `    compile output: ${out.compileOutput}` : "");
+        console.error(out.full.filter((t) => t.status !== "passed").map((t) => `    test ${t.testId}: ${t.status} ${t.message ?? ""}`).join("\n"));
+      }
+      return { ok, report: { verdict: out.summary.verdict, passed, total: out.full.length, tests: [], compileOutput: out.compileOutput, ranAt: new Date().toISOString() } };
+    };
+
+    const java = await verifyLang("java");
+    const byLanguage: Record<string, unknown> = {};
+    let all = java.ok;
+    for (const l of Object.keys(cfg.variants) as ExtraLang[]) {
+      const r = await verifyLang(l);
+      byLanguage[l] = r.report;
+      all = all && r.ok;
     }
+    verified = all;
+    await svc.from("coding_secrets").update({ last_validation: { ...java.report, byLanguage } as Json }).eq("question_version_id", version_id);
   }
 
   let published = false;

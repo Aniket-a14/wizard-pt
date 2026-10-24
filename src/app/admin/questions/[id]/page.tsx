@@ -5,6 +5,10 @@ import { CodingEditor, EMPTY_CODING, type CodingForm } from "../coding-editor";
 import { McqEditor, type McqForm } from "../mcq-editor";
 import type { ValidationReport } from "@/lib/actions/questions";
 import type { ImportFlag } from "@/lib/import/text-parser";
+import type { ExtraLang, VariantsPublic, VariantsSecret } from "@/lib/coding/languages";
+import { buildCTemplate } from "@/lib/coding/harness-c";
+import { buildCppTemplate } from "@/lib/coding/harness-cpp";
+import { parseSignature } from "@/lib/coding/signature";
 
 export const metadata = { title: "Edit question" };
 
@@ -59,6 +63,19 @@ export default async function EditQuestion({ params }: PageProps<"/admin/questio
     executionMode: (c?.execution_mode ?? "function") as CodingForm["executionMode"], gradingMode: (c?.grading_mode ?? "auto") as CodingForm["gradingMode"],
     functionSignature: c?.function_signature ?? "", editableScope: (c?.editable_scope ?? "method") as CodingForm["editableScope"], starterCode: c?.starter_code ?? "",
     boilerplateSource: sec.data?.boilerplate_source ?? "", referenceSolution: sec.data?.reference_solution ?? "",
+    languages: Object.fromEntries((Object.keys((c?.variants ?? {}) as object) as ExtraLang[]).map((l) => {
+      const pubV = (c?.variants as VariantsPublic)[l];
+      const secV = ((sec.data?.variants ?? {}) as VariantsSecret)[l];
+      // A starter identical to the generated one is not an override: leave it empty so it follows signature edits.
+      let generated = "";
+      try {
+        const sig = parseSignature(c?.function_signature ?? "");
+        const t = l === "cpp" ? buildCppTemplate(sig) : buildCTemplate(sig);
+        generated = c?.editable_scope === "body" ? t.starterBody : t.starterMethod;
+      } catch {}
+      const stored = pubV?.starter_code ?? "";
+      return [l, { referenceSolution: secV?.reference_solution ?? "", boilerplateSource: secV?.boilerplate_source ?? "", starterCode: stored === generated ? "" : stored }];
+    })),
     timeLimitMs: c?.time_limit_ms ?? 2000, memoryLimitMb: c?.memory_limit_mb ?? 256, compareMode: (c?.compare_mode ?? "exact") as CodingForm["compareMode"],
     floatTolerance: c?.float_tolerance ?? 1e-6, allowCustomInput: c?.allow_custom_input ?? true, revealHidden: c?.reveal_hidden ?? false,
     tests: (tests.data ?? []).map((t) => ({ input: t.input, expected_output: t.expected_output, visibility: t.visibility as "public" | "hidden", weight: Number(t.weight), label: t.label ?? "" })),

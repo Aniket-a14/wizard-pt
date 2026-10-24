@@ -1,7 +1,8 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { loadEvalContext } from "@/lib/coding/context";
+import { LanguageNotEnabledError, loadEvalContext } from "@/lib/coding/context";
+import { LANGUAGES } from "@/lib/coding/languages";
 import { CodeValidationError, validateStudentCode } from "@/lib/coding/compose";
 import { notifyAdmins, processSubmission } from "@/lib/coding/submission";
 import { isExternalRunnerMode } from "@/lib/runner/mode";
@@ -13,6 +14,7 @@ const body = z.object({
   versionId: z.string().uuid(),
   code: z.string().max(70_000),
   idempotencyKey: z.string().min(8).max(100),
+  language: z.enum(LANGUAGES).default("java"),
 });
 
 const SUBMITS_PER_10_MIN = 12;
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return jsonError("Invalid request.", 400);
-  const { versionId, code, idempotencyKey } = parsed.data;
+  const { versionId, code, idempotencyKey, language } = parsed.data;
 
   if (!(await studentCanSeeVersion(versionId))) return jsonError("Problem not found.", 404);
   const db = createAdminClient();
@@ -36,7 +38,13 @@ export async function POST(req: NextRequest) {
   const recent = await db.from("code_submissions").select("id", { count: "exact", head: true }).eq("student_id", user.id).gte("submitted_at", since);
   if ((recent.count ?? 0) >= SUBMITS_PER_10_MIN) return jsonError("You've submitted a lot in a short time. Please wait a few minutes.", 429);
 
-  const ctx = await loadEvalContext(versionId);
+  let ctx;
+  try {
+    ctx = await loadEvalContext(versionId, language);
+  } catch (e) {
+    if (e instanceof LanguageNotEnabledError) return jsonError(e.message, 400);
+    throw e;
+  }
   if (!ctx) return jsonError("Problem not found.", 404);
   try {
     validateStudentCode(code, ctx.config);
@@ -47,7 +55,7 @@ export async function POST(req: NextRequest) {
 
   const ins = await db
     .from("code_submissions")
-    .insert({ student_id: user.id, question_version_id: versionId, source_code: code, idempotency_key: idempotencyKey, language: "java", status: "queued", max_marks: ctx.marks })
+    .insert({ student_id: user.id, question_version_id: versionId, source_code: code, idempotency_key: idempotencyKey, language, status: "queued", max_marks: ctx.marks })
     .select("id, status")
     .single();
   if (ins.error) {

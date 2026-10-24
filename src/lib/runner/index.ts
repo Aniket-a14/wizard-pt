@@ -34,6 +34,7 @@ export function getRunner(): Runner {
     }
     inner = new DockerRunner({
       image: process.env.RUNNER_DOCKER_IMAGE ?? "eclipse-temurin:21-jdk",
+      gccImage: process.env.RUNNER_DOCKER_GCC_IMAGE ?? "gcc:14",
       parallelism: Number(process.env.RUNNER_DOCKER_PARALLELISM ?? 3),
     });
   } else if (provider === "judge0") {
@@ -45,6 +46,8 @@ export function getRunner(): Runner {
       rapidApiKey: process.env.JUDGE0_RAPIDAPI_KEY || undefined,
       rapidApiHost: process.env.JUDGE0_RAPIDAPI_HOST || undefined,
       languageId: Number(process.env.JUDGE0_JAVA_LANGUAGE_ID ?? 62),
+      cppLanguageId: Number(process.env.JUDGE0_CPP_LANGUAGE_ID ?? 54),
+      cLanguageId: Number(process.env.JUDGE0_C_LANGUAGE_ID ?? 50),
       maxMemoryKb: Number(process.env.JUDGE0_MAX_MEMORY_KB ?? 512000),
       pollTimeoutMs: Number(process.env.JUDGE0_POLL_TIMEOUT_MS ?? 60000),
     });

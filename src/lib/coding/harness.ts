@@ -629,10 +629,13 @@ export interface ParsedBoilerplate {
  *   // ==== STUDENT CODE END ====
  * Exactly one START and one END (in that order) are required. Nothing is guessed.
  */
-export function parseBoilerplate(source: string): ParsedBoilerplate {
+export function parseBoilerplate(source: string, lang: "java" | "cpp" | "c" = "java"): ParsedBoilerplate {
   const text = source.replace(/\r\n/g, "\n");
-  if (!/\bclass\s+Main\b/.test(text)) {
+  if (lang === "java" && !/\bclass\s+Main\b/.test(text)) {
     throw new BoilerplateError("The boilerplate must declare `public class Main` (the runner compiles Main.java).");
+  }
+  if (lang !== "java" && !/\bmain\s*\(/.test(text)) {
+    throw new BoilerplateError(`The ${lang === "cpp" ? "C++" : "C"} boilerplate must define \`main\` (it owns reading input and printing the result).`);
   }
   const starts = [...text.matchAll(START_RE)];
   const ends = [...text.matchAll(END_RE)];

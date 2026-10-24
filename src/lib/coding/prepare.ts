@@ -1,5 +1,8 @@
 import type { CodingDraft } from "@/lib/validation/question";
 import { buildFunctionTemplate, parseBoilerplate, BoilerplateError } from "./harness";
+import { buildCTemplate, cDeclaration } from "./harness-c";
+import { buildCppTemplate, cppDeclaration } from "./harness-cpp";
+import { EXTRA_LANGUAGES, LANG_META, type ExtraLang, type VariantsPublic, type VariantsSecret } from "./languages";
 import { checkTestInputShape, parseSignature, returnJType, paramTypes, SignatureError, usesJsonOutput } from "./signature";
 
 export type PrepareResult =
@@ -15,6 +18,81 @@ public class Main {
     }
 }
 `;
+
+const PROGRAM_STARTERS: Record<ExtraLang, string> = {
+  cpp: `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    // Write your solution here
+    return 0;
+}
+`,
+  c: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main(void) {
+    /* Write your solution here */
+    return 0;
+}
+`,
+};
+
+/**
+ * Build the C++ / C data for a problem: derived declaration, starter and platform wrapper (function mode),
+ * or the admin's own driver (custom-driver problems), or a plain starter (full-program mode).
+ */
+function prepareVariants(d: CodingDraft, signatureText: string, fieldErrors: Record<string, string>, warnings: string[]) {
+  const pub: VariantsPublic = {};
+  const sec: VariantsSecret = {};
+  const c = d.config;
+  for (const lang of EXTRA_LANGUAGES) {
+    const v = d.languages[lang];
+    if (!v) continue;
+    const label = LANG_META[lang].label;
+    const key = `languages.${lang}`;
+    let prefix = "";
+    let suffix = "";
+    let starter = v.starter_code;
+    let declaration = "";
+    try {
+      if (c.execution_mode === "program") {
+        if (!starter.trim()) starter = PROGRAM_STARTERS[lang];
+      } else if (v.boilerplate_source.trim()) {
+        const bp = parseBoilerplate(v.boilerplate_source, lang);
+        prefix = bp.prefix;
+        suffix = bp.suffix;
+        if (!starter.trim()) starter = bp.starter;
+        if (signatureText) {
+          // The admin's driver owns main(); we still record the declaration so the method name can be checked.
+          try {
+            const sig = parseSignature(signatureText);
+            declaration = lang === "cpp" ? cppDeclaration(sig) : cDeclaration(sig);
+          } catch {
+            declaration = "";
+          }
+        }
+      } else if (signatureText) {
+        const sig = parseSignature(signatureText);
+        const tpl = lang === "cpp" ? buildCppTemplate(sig) : buildCTemplate(sig);
+        declaration = tpl.declaration;
+        prefix = tpl.prefix;
+        suffix = tpl.suffix;
+        if (!starter.trim()) starter = c.editable_scope === "body" ? tpl.starterBody : tpl.starterMethod;
+      } else {
+        throw new BoilerplateError(`This problem has a custom driver, so the ${label} version needs its own boilerplate (full program with STUDENT CODE START/END markers).`);
+      }
+    } catch (e) {
+      if (e instanceof SignatureError || e instanceof BoilerplateError) { fieldErrors[key] = `${label}: ${e.message}`; continue; }
+      throw e;
+    }
+    if (!v.reference_solution.trim()) warnings.push(`${label} has no reference solution, so it cannot be verified against the tests. Add one before publishing.`);
+    pub[lang] = { function_signature: declaration, starter_code: starter };
+    sec[lang] = { template_prefix: prefix, template_suffix: suffix, boilerplate_source: v.boilerplate_source, reference_solution: v.reference_solution };
+  }
+  return { pub, sec };
+}
 
 /**
  * Turn the admin's form state into the trusted stored configuration:
@@ -86,6 +164,8 @@ export function prepareCoding(d: CodingDraft): PrepareResult {
     if (!/\bclass\s+Main\b/.test(starter)) warnings.push("Full-program mode: the starter code should declare `public class Main`.");
   }
 
+  const variants = prepareVariants(d, signature ?? "", fieldErrors, warnings);
+
   if (Object.keys(fieldErrors).length > 0) {
     return { ok: false, error: Object.values(fieldErrors)[0], fieldErrors };
   }
@@ -109,12 +189,13 @@ export function prepareCoding(d: CodingDraft): PrepareResult {
       review_flags: d.review_flags,
       explanation_md: d.explanation_md,
       import_id: d.import_id ?? null,
-      config: { ...c, function_signature: signature ?? "", starter_code: starter, compare_mode: compareMode, editable_scope: editableScope },
+      config: { ...c, function_signature: signature ?? "", starter_code: starter, compare_mode: compareMode, editable_scope: editableScope, variants: variants.pub },
       secrets: {
         template_prefix: prefix,
         template_suffix: suffix,
         boilerplate_source: d.boilerplate_source,
         reference_solution: d.reference_solution,
+        variants: variants.sec,
       },
       tests: d.tests.map((t) => ({
         input: t.input,
