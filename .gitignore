@@ -46,3 +46,6 @@ next-env.d.ts
 # test artifacts
 /test-results/
 /playwright-report/
+
+# Real problems (reference solutions + hidden tests = the answer key): never commit these to the public repo.
+/scripts/problems/private/

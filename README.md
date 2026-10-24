@@ -47,6 +47,8 @@ Public sign-up is disabled (`supabase/config.toml` → `[auth] enable_signup = f
 
 `pnpm problem:add scripts/problems/scrambled-twin-codes.ts` creates a problem as the admin, runs its **reference solution against every test** in the Docker sandbox, and publishes it only if all pass (`--draft` saves it as a draft; `--env .env.cloud --accounts` targets the cloud project). A problem file has the same shape as the seed problems (`scripts/seed/problems.ts`); `scripts/problems/scrambled-twin-codes.ts` is a worked example whose hidden-test answers are computed by an independent implementation.
 
+**Keep real problems private.** A problem file contains the reference solutions and the hidden-test generator, i.e. the answer key, and this repository is public. Put real problems in `scripts/problems/private/` (git-ignored); only worked examples belong in the tracked `scripts/problems/`. Test inputs can be up to 500,000 characters, enough for the maximum-size cases (N = 2·10^5) of typical constraints.
+
 ### Demo data
 
 `pnpm seed` creates 6 Java problems (including **Reverse Only the Letters**, a full-program problem, public + hidden tests), 8 MCQs and a sample timed quiz, all flagged `is_seed`. Every reference solution is executed against every test in the sandbox before the problem is published; if the sandbox is unavailable the problems stay drafts. `pnpm seed --draft` creates drafts only. `pnpm seed:remove` deletes seed content and any work done on it.

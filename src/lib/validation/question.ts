@@ -24,8 +24,8 @@ const metadata = {
 };
 
 export const testCaseSchema = z.object({
-  input: text(200_000).default(""),
-  expected_output: text(200_000).default(""),
+  input: text(500_000).default(""),
+  expected_output: text(500_000).default(""),
   visibility: z.enum(["public", "hidden"]),
   weight: z.number().min(0.01).max(1000).default(1),
   label: text(80).nullable().optional(),
