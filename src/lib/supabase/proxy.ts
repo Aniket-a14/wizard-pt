@@ -8,6 +8,7 @@ export async function updateSession(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
+      cookieOptions: { secure: process.env.NODE_ENV === "production", sameSite: "lax" },
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll: (toSet) => {
