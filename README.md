@@ -117,7 +117,8 @@ Covered: signature/harness/composition/comparison/scoring; text and PDF importer
 2. **Provision users:** with `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SECRET_KEY` pointing at the cloud project and the `ADMIN_*`/`STUDENT_*` variables set, run `pnpm bootstrap` for the admin, then add students from the admin's **Students** page.
 3. **Runner:** self-host Judge0 on a cgroup-v1 Linux VM or use a hosted Judge0 plan, or set `RUNNER_PROVIDER=manual` (see *Code execution*) to deploy without an execution service.
 4. **Vercel:** import the repo, set the variables from `.env.example` (`RUNNER_PROVIDER=judge0`, `JUDGE0_*`, the Supabase trio, `NEXT_PUBLIC_APP_NAME`). The submit route uses `after()` and `maxDuration` — a plan/Fluid-compute setting that allows ≥ 60 s is recommended; the poll endpoint also re-kicks stalled jobs, so a shorter limit degrades gracefully.
-5. In Supabase **Auth → URL configuration** set the site URL to your Vercel domain.
+5. **Region:** keep the Vercel functions in the same region as the Supabase project (`vercel.json` → `regions`, currently `syd1` for Supabase `ap-southeast-2`). Every page makes several database calls; a cross-ocean hop on each one made pages take 2–4 s instead of about 0.5 s. If you create the Supabase project in another region, change `vercel.json` to match.
+6. In Supabase **Auth → URL configuration** set the site URL to your Vercel domain.
 
 ---
 
