@@ -26,6 +26,22 @@ describe("parseSignature", () => {
     expect(() => parseSignature("hello world")).toThrow(SignatureError);
     expect(() => parseSignature("public static int f(int a, int a)")).toThrow(SignatureError);
   });
+  it("accepts ArrayList<String> / List<String> as parameters, but not as a return type", () => {
+    const s = parseSignature("public static int countTwinCodes(ArrayList<String> codes)");
+    expect(s.params).toEqual([{ type: "ArrayList<String>", name: "codes" }]);
+    expect(s.declaration).toBe("public static int countTwinCodes(ArrayList<String> codes)");
+    expect(parseSignature("public static int f(List < String >  xs, int k)").params.map((p) => p.type)).toEqual(["List<String>", "int"]);
+    expect(() => parseSignature("public static ArrayList<String> f(int n)")).toThrow(/parameters only/);
+    expect(() => parseSignature("public static int f(ArrayList<Integer> xs)")).toThrow(SignatureError);
+    expect(() => parseSignature("public static int f(Map<String, Integer> m)")).toThrow(SignatureError);
+  });
+  it("checks list input shape (count line + one line of items that must match the count)", () => {
+    const s = parseSignature("public static int f(ArrayList<String> codes)");
+    expect(checkTestInputShape(s, "3\nABC DEF GHI")).toBeNull();
+    expect(checkTestInputShape(s, "0\n")).toBeNull();
+    expect(checkTestInputShape(s, "3\nABC DEF")).toMatch(/count line says 3 but the next line has 2/);
+    expect(checkTestInputShape(s, "x\nABC")).toMatch(/count line/);
+  });
   it("checks input shape", () => {
     const s = parseSignature("public static int f(int[] a, int k)");
     expect(checkTestInputShape(s, "1 2 3\n2")).toBeNull();

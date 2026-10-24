@@ -41,6 +41,10 @@ Sign in with the credentials you set. The admin lands on `/admin`, the student o
 
 Public sign-up is disabled (`supabase/config.toml` → `[auth] enable_signup = false`, and users have no way to create profiles). `pnpm bootstrap` is the only provisioning path: it reads `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STUDENT_EMAIL`, `STUDENT_PASSWORD` from the environment (or prompts for them), creates/updates both users with the service-role key, and writes their `profiles` row (role lives **only** in `profiles`, and users cannot change it). No credentials are committed or hardcoded; remove them from your env after running it. Re-running resets the passwords to the supplied values.
 
+### Adding a problem from a written spec
+
+`pnpm problem:add scripts/problems/scrambled-twin-codes.ts` creates a problem as the admin, runs its **reference solution against every test** in the Docker sandbox, and publishes it only if all pass (`--draft` saves it as a draft; `--env .env.cloud --accounts` targets the cloud project). A problem file has the same shape as the seed problems (`scripts/seed/problems.ts`); `scripts/problems/scrambled-twin-codes.ts` is a worked example whose hidden-test answers are computed by an independent implementation.
+
 ### Demo data
 
 `pnpm seed` creates 6 Java problems (including **Reverse Only the Letters**, a full-program problem, public + hidden tests), 8 MCQs and a sample timed quiz, all flagged `is_seed`. Every reference solution is executed against every test in the sandbox before the problem is published; if the sandbox is unavailable the problems stay drafts. `pnpm seed --draft` creates drafts only. `pnpm seed:remove` deletes seed content and any work done on it.
@@ -54,7 +58,7 @@ Public sign-up is disabled (`supabase/config.toml` → `[auth] enable_signup = f
 | **Create** | Manual form, pasted raw text (deterministic parser), or PDF upload (text PDFs; scanned PDFs are reported as *OCR required*). Imports always land as editable **drafts** with unresolved parts flagged; answer keys, reference solutions and hidden tests are never invented. |
 | **Coding modes** | *Function-only* (default): admin gives a Java signature; the platform generates the `Main` wrapper, input parsing and printing; the student edits only the method (or only the body). *Full program*: student writes `Main` and uses stdin/stdout. Admin can instead paste a full boilerplate with `// ==== STUDENT CODE START/END ====` markers. |
 | **Trusted composition** | The server rebuilds the program as `stored prefix + student code + stored suffix` — no search-and-replace, and the API accepts only `{versionId, code}`. Unbalanced brackets, marker lines etc. are rejected. |
-| **Typed harness** | `String, int, long, double, boolean, char, int[], long[], double[], boolean[], String[]` params/returns (encoding documented in `src/lib/coding/signature.ts`). Nothing else is advertised. |
+| **Typed harness** | `String, int, long, double, boolean, char, int[], long[], double[], boolean[], String[]` params/returns, plus `ArrayList<String>` / `List<String>` as parameters only (a count line, then one line of space-separated items). Encoding documented in `src/lib/coding/signature.ts`. Nothing else is advertised. |
 | **Run vs Submit** | *Run* executes public tests (or custom input), stores nothing but a rate-limit record. *Submit* creates an immutable snapshot, grades public + hidden tests asynchronously (poll + stall recovery), scores by test weight, notifies the admin. Student sees counts for hidden tests, never their data (unless a problem opts in). |
 | **Output comparison** | Explicit per problem: `exact` (default; only trailing whitespace/newlines ignored), `trim`, `tokens`, `float` (tolerance). Case and ordering always matter. |
 | **Failure safety** | Runner down, queue timeout, or JVM start failure → verdict `system_error` ("not evaluated"), never *Accepted*; the student can retry the same snapshot. |
@@ -118,7 +122,7 @@ Covered: signature/harness/composition/comparison/scoring; text and PDF importer
 ## Known limitations
 
 * **Live Judge0 grading was not verified end-to-end** in the development environment (the host uses cgroup v2). The client is tested against Judge0's real API surface (health, languages, submit/poll, failure handling) and a protocol fake; all real compile/run verification used the Docker sandbox. Run **Settings → Test connection** and one seeded problem after configuring Judge0.
-* Supported Java types are limited to those listed above (no `List`, nested arrays, custom classes).
+* Supported Java types are limited to those listed above (lists only of `String` and only as parameters; no nested arrays or custom classes).
 * Only Java; the runner interface (`src/lib/runner`) and config columns are language-ready but no other language is implemented.
 * PDF import needs a text layer; there is no OCR. Question detection is heuristic, which is why everything passes through an editable review step.
 * Monaco is loaded from a CDN at runtime.

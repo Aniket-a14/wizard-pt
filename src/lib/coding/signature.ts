@@ -3,7 +3,8 @@
  * function-mode test harnesses.
  *
  * Supported parameter / return types are intentionally small and fully implemented:
- *   String, int, long, double, boolean, char, int[], long[], double[], boolean[], String[]
+ *   String, int, long, double, boolean, char, int[], long[], double[], boolean[], String[],
+ *   plus ArrayList<String> / List<String> as PARAMETERS only
  *
  * Input encoding (one test case `input` string, one *logical value* per parameter, in order):
  *   String                      the raw line (may contain spaces; may be empty)
@@ -12,6 +13,9 @@
  *   int[]/long[]/double[]/boolean[]
  *                               one line of space-separated values; an empty line is an empty array
  *   String[]                    a line holding the element count n, then n lines (one element each)
+ *   ArrayList<String>/List<String>
+ *                               a line holding the element count n, then ONE line of n whitespace-separated
+ *                               elements (elements therefore cannot contain spaces)
  *
  * Output encoding (what the harness prints, compared with `expected_output`):
  *   String/int/long/double/boolean/char   the value's string form
@@ -31,7 +35,12 @@ export const SUPPORTED_TYPES = [
   "double[]",
   "boolean[]",
   "String[]",
+  "ArrayList<String>",
+  "List<String>",
 ] as const;
+
+const LIST_TYPES: readonly string[] = ["ArrayList<String>", "List<String>"];
+export const isListType = (t: string): boolean => LIST_TYPES.includes(t);
 
 export type JavaType = (typeof SUPPORTED_TYPES)[number];
 
@@ -62,7 +71,7 @@ export function parseSignature(input: string): ParsedSignature {
     .replace(/;$/, "")
     .trim();
 
-  const m = /^((?:(?:public|private|protected|static|final)\s+)*)([A-Za-z_][\w]*(?:\s*\[\s*\])*)\s+([A-Za-z_$][\w$]*)\s*\(([\s\S]*)\)\s*(?:throws\s+[\w.,\s]+)?$/.exec(src);
+  const m = /^((?:(?:public|private|protected|static|final)\s+)*)([A-Za-z_][\w]*(?:\s*<[^<>]*>)?(?:\s*\[\s*\])*)\s+([A-Za-z_$][\w$]*)\s*\(([\s\S]*)\)\s*(?:throws\s+[\w.,\s]+)?$/.exec(src);
   if (!m) throw new SignatureError("Could not read the method signature. Expected something like: public static String name(String arg)");
 
   const modifiers = m[1].split(/\s+/).filter(Boolean);
@@ -77,13 +86,16 @@ export function parseSignature(input: string): ParsedSignature {
   if (!returnType) {
     throw new SignatureError(`Unsupported return type "${m[2].trim()}". Supported: ${SUPPORTED_TYPES.join(", ")}.`);
   }
+  if (isListType(returnType)) {
+    throw new SignatureError("Lists are supported as parameters only. Return a String[] or a primitive array instead.");
+  }
   const name = m[3];
 
   const params: ParsedSignature["params"] = [];
   const paramSrc = m[4].trim();
   if (paramSrc.length > 0) {
     for (const piece of paramSrc.split(",")) {
-      const pm = /^\s*(?:final\s+)?([A-Za-z_][\w]*(?:\s*\[\s*\])*)\s+([A-Za-z_$][\w$]*)\s*$/.exec(piece);
+      const pm = /^\s*(?:final\s+)?([A-Za-z_][\w]*(?:\s*<[^<>]*>)?(?:\s*\[\s*\])*)\s+([A-Za-z_$][\w$]*)\s*$/.exec(piece);
       if (!pm) throw new SignatureError(`Could not read parameter "${piece.trim()}".`);
       const type = normaliseType(pm[1]);
       if (!type) {
@@ -115,6 +127,12 @@ export function checkTestInputShape(sig: ParsedSignature, input: string): string
       const n = Number((lines[i] ?? "").trim());
       if (!Number.isInteger(n) || n < 0) return `Parameter "${p.name}" (String[]) needs a count line first.`;
       i += 1 + n;
+    } else if (isListType(p.type)) {
+      const n = Number((lines[i] ?? "").trim());
+      if (!Number.isInteger(n) || n < 0) return `Parameter "${p.name}" (${p.type}) needs a count line first.`;
+      const items = (lines[i + 1] ?? "").trim() === "" ? 0 : (lines[i + 1] ?? "").trim().split(/\s+/).length;
+      if (items !== n) return `Parameter "${p.name}" (${p.type}): the count line says ${n} but the next line has ${items} item${items === 1 ? "" : "s"}.`;
+      i += 2;
     } else {
       if (i >= lines.length && p.type !== "String" && !p.type.endsWith("[]")) {
         return `Missing line for parameter "${p.name}" (${p.type}).`;

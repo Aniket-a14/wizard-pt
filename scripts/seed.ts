@@ -11,13 +11,9 @@
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database, Json } from "../src/lib/supabase/database.types";
-import { codingDraftSchema } from "../src/lib/validation/question";
-import { prepareCoding } from "../src/lib/coding/prepare";
-import { evaluate } from "../src/lib/coding/evaluate";
 import { DockerRunner } from "../src/lib/runner/docker";
-import { parseSignature } from "../src/lib/coding/signature";
-import { buildFunctionTemplate } from "../src/lib/coding/harness";
 import { MCQS, PROBLEMS } from "./seed/problems";
+import { createProblem } from "./lib/publish-problem";
 
 config({ path: ".env.local" });
 config();
@@ -81,68 +77,8 @@ async function seed(asDraft: boolean) {
 
   let published = 0;
   for (const p of PROBLEMS) {
-    const sig = p.mode === "function" ? parseSignature(p.signature!).declaration : "";
-    const tests = [
-      ...p.publicTests.map((t, i) => ({ input: t.input, expected_output: t.output, visibility: "public" as const, weight: 1, label: `Example ${i + 1}` })),
-      ...p.hiddenTests.map((t) => ({ input: t.input, expected_output: t.output, visibility: "hidden" as const, weight: 1, label: t.label ?? null })),
-    ];
-    const draft = codingDraftSchema.parse({
-      questionId: null,
-      title: p.title,
-      difficulty: p.difficulty,
-      topic: p.topic,
-      tags: p.topic.split(/\s*\+\s*/),
-      company: p.company ?? "",
-      marks: p.marks ?? 10,
-      est_minutes: p.minutes ?? null,
-      statement_md: p.statement,
-      input_format: p.inputFormat,
-      output_format: p.outputFormat,
-      constraints_md: p.constraints,
-      examples: p.examples.map((e) => ({ explanation: "", ...e })),
-      config: {
-        execution_mode: p.mode,
-        function_signature: sig,
-        starter_code: p.mode === "function" ? buildFunctionTemplate(parseSignature(sig)).starterMethod : "",
-        compare_mode: p.compare ?? "exact",
-        time_limit_ms: 2000,
-        memory_limit_mb: 256,
-      },
-      reference_solution: p.reference,
-      tests,
-    });
-    const prep = prepareCoding(draft);
-    if (!prep.ok) throw new Error(`${p.title}: ${prep.error}`);
-    const { data, error } = await admin.rpc("save_coding_draft", { p_payload: { ...prep.payload, is_seed: true } as Json });
-    if (error) throw new Error(`${p.title}: ${error.message}`);
-    const { question_id, version_id } = data as unknown as { question_id: string; version_id: string };
-
-    // Verify: the reference solution must pass every test before this can be published.
-    let verified = false;
-    if (runnerHealth.ok) {
-      const cfg = prep.payload.config as { editable_scope: "method" | "body"; time_limit_ms: number; memory_limit_mb: number; compare_mode: "exact" | "tokens" | "float"; float_tolerance: number; reveal_hidden: boolean };
-      const sec = prep.payload.secrets as { template_prefix: string; template_suffix: string };
-      const out = await evaluate({
-        config: {
-          executionMode: p.mode, editableScope: cfg.editable_scope, functionSignature: sig || null,
-          templatePrefix: sec.template_prefix, templateSuffix: sec.template_suffix,
-          timeLimitMs: cfg.time_limit_ms, memoryLimitMb: cfg.memory_limit_mb, compareMode: cfg.compare_mode, floatTolerance: cfg.float_tolerance, revealHidden: false,
-        },
-        tests: tests.map((t, i) => ({ id: String(i), input: t.input, expectedOutput: t.expected_output, visibility: t.visibility, weight: 1 })),
-        studentCode: p.reference,
-        runner,
-      });
-      const passed = out.full.filter((t) => t.status === "passed").length;
-      verified = out.summary.verdict === "accepted";
-      await svc.from("coding_secrets").update({ last_validation: { verdict: out.summary.verdict, passed, total: out.full.length, tests: [], compileOutput: out.compileOutput, ranAt: new Date().toISOString() } as Json }).eq("question_version_id", version_id);
-      console.log(`  ${verified ? "✓" : "✗"} ${p.title}: reference passes ${passed}/${out.full.length}`);
-      if (!verified) console.error(out.full.filter((t) => t.status !== "passed").map((t) => `    test ${t.testId}: ${t.status} ${t.message ?? ""}`).join("\n"));
-    }
-    if (verified && !asDraft) {
-      const pub = await admin.rpc("publish_coding_question", { p_question_id: question_id });
-      if (pub.error) throw new Error(`${p.title}: ${pub.error.message}`);
-      published++;
-    }
+    const r = await createProblem({ admin, svc, runner, runnerOk: runnerHealth.ok }, p, { isSeed: true, draftOnly: asDraft });
+    if (r.published) published++;
   }
 
   // MCQ bank + a sample quiz

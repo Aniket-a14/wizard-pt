@@ -395,7 +395,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
                   <Input value={form.functionSignature} onChange={(e) => set("functionSignature", e.target.value)} className="font-mono" placeholder="public static String maskCode(String code)" />
                 </Field>
                 <p className={cn("mt-1 text-xs", sigState?.ok ? "text-success" : "text-danger")}>{sigState?.message}</p>
-                <p className="mt-1 text-xs text-muted">Supported types: String, int, long, double, boolean, char, int[], long[], double[], boolean[], String[]. Test inputs: one line per parameter; arrays are space-separated on one line; String[] is a count line followed by one line per element.</p>
+                <p className="mt-1 text-xs text-muted">Supported types: String, int, long, double, boolean, char, int[], long[], double[], boolean[], String[], and ArrayList&lt;String&gt; / List&lt;String&gt; (parameters only). Test inputs: one line per parameter; arrays are space-separated on one line; String[] is a count line followed by one line per element; a list is a count line followed by one line of space-separated items.</p>
               </div>
             )}
           </Panel>

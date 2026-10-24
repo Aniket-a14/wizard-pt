@@ -196,6 +196,36 @@ describe.skipIf(!ready)("Java execution through the Docker sandbox", () => {
     expect(bool.summary.verdict).toBe("accepted");
   });
 
+  it("supports ArrayList<String> parameters (count line, then one line of items)", async () => {
+    const sig = "public static int countTwinCodes(ArrayList<String> codes)";
+    const reference = `public static int countTwinCodes(ArrayList<String> codes) {
+      int n = codes.size(); String[] k = new String[n];
+      for (int i = 0; i < n; i++) { char[] c = codes.get(i).toCharArray(); Arrays.sort(c); k[i] = new String(c); }
+      Arrays.sort(k); int count = 0, i = 0;
+      while (i < n) { int j = i; while (j < n && k[j].equals(k[i])) j++; if (j - i >= 2) count += j - i; i = j; }
+      return count; }`;
+    const tests = [
+      mk("a", "7\nLISTEN SILENT ENLIST GOOGLE CODE DECO JAVA", "5"),
+      mk("b", "3\nABC DEF GHI", "0"),
+      mk("c", "4\nAAB ABA BAA AB", "3", "hidden"),
+      mk("d", "0\n", "0", "hidden"),
+    ];
+    const ok = await evaluate({ config: cfgFor(sig), tests, studentCode: reference, runner });
+    expect(ok.compileOutput).toBeNull();
+    expect(ok.summary.verdict).toBe("accepted");
+    // a List<String> parameter works the same way
+    const asList = await evaluate({
+      config: cfgFor("public static int size(List<String> xs)"),
+      tests: [mk("a", "2\nX Y", "2")],
+      studentCode: "public static int size(List<String> xs) { return xs.size(); }",
+      runner,
+    });
+    expect(asList.summary.verdict).toBe("accepted");
+    // a wrong solution (counts every code) is not accepted
+    const wrong = await evaluate({ config: cfgFor(sig), tests, studentCode: "public static int countTwinCodes(ArrayList<String> codes) { return codes.size(); }", runner });
+    expect(wrong.summary.verdict).not.toBe("accepted");
+  });
+
   it("full-program mode uses stdin/stdout", async () => {
     const prog = `import java.util.*;
 public class Main { public static void main(String[] a) { Scanner sc = new Scanner(System.in); int x = sc.nextInt(), y = sc.nextInt(); System.out.println(x + y); } }`;

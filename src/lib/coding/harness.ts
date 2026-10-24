@@ -68,6 +68,9 @@ function readExpr(t: JavaType, varName: string): string {
       return `boolean[] ${varName} = __wptBools(${line});`;
     case "String[]":
       return `String[] ${varName} = __wptStrings(__wptIn);`;
+    case "ArrayList<String>":
+    case "List<String>":
+      return `${t} ${varName} = __wptStringList(__wptIn);`;
   }
 }
 
@@ -111,6 +114,14 @@ const HELPERS: Record<string, string> = {
         for (int i = 0; i < n; i++) r[i] = __wptReadLine(in);
         return r;
     }`,
+  stringList: `    private static ArrayList<String> __wptStringList(BufferedReader in) throws IOException {
+        int n = Integer.parseInt(__wptReadLine(in).trim());
+        String line = __wptReadLine(in).trim();
+        ArrayList<String> r = new ArrayList<>();
+        if (!line.isEmpty()) r.addAll(Arrays.asList(line.split("\\\\s+")));
+        if (r.size() != n) throw new IllegalStateException("Test input says " + n + " items but has " + r.size());
+        return r;
+    }`,
 };
 
 function helpersFor(types: JavaType[]): string[] {
@@ -122,6 +133,7 @@ function helpersFor(types: JavaType[]): string[] {
     if (t === "double[]") need.add("doubles");
     if (t === "boolean[]") need.add("bools");
     if (t === "String[]") need.add("strings");
+    if (t === "ArrayList<String>" || t === "List<String>") need.add("stringList");
   }
   return [...need].map((k) => HELPERS[k]);
 }
