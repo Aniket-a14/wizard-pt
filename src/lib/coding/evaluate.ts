@@ -66,6 +66,15 @@ export interface EvalOutput {
 const TRUNC = 4000;
 const trunc = (s: string, n = TRUNC) => (s.length > n ? s.slice(0, n) + "\n… (truncated)" : s);
 
+/**
+ * A function-mode problem normally uses the generated harness, which brackets the result with markers.
+ * When the admin supplies their own driver (class-design problems), the driver prints the final output
+ * itself, so the whole of stdout is the result (and student prints would corrupt it).
+ */
+export function driverPrintsResult(cfg: Pick<ComposeConfig, "executionMode" | "templateSuffix">): boolean {
+  return cfg.executionMode === "function" && !cfg.templateSuffix.includes(RESULT_BEGIN);
+}
+
 /** Pull the harness result (and the student's own prints) out of stdout. */
 export function extractFunctionResult(stdout: string): { actual: string; studentStdout: string } | null {
   const b = stdout.lastIndexOf(RESULT_BEGIN);
@@ -110,7 +119,7 @@ function classify(
   // status ok
   let actual: string;
   let studentStdout = "";
-  if (cfg.executionMode === "function") {
+  if (cfg.executionMode === "function" && !driverPrintsResult(cfg)) {
     const ex = extractFunctionResult(r.stdout);
     if (!ex) {
       return { ...base, ...empty, studentStdout: trunc(r.stdout), status: "runtime_error", message: "The program ended without returning a result (did it call System.exit?)." };
@@ -250,7 +259,7 @@ export async function evaluateCustom(args: { config: EvalConfig; input: string; 
     case "internal_error":
       return { ...base, status: "system_error", systemError: r.message ?? "Execution service failed" };
   }
-  if (args.config.executionMode === "function") {
+  if (args.config.executionMode === "function" && !driverPrintsResult(args.config)) {
     const ex = extractFunctionResult(r.stdout);
     if (!ex) return { ...base, status: "runtime_error", studentStdout: trunc(r.stdout), stderr: "The program ended without returning a result (did it call System.exit?)." };
     return { ...base, status: "ok", output: trunc(ex.actual), studentStdout: trunc(ex.studentStdout) };

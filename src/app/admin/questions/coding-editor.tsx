@@ -13,7 +13,8 @@ import { parsePastedText } from "@/lib/actions/imports";
 import { publishCodingQuestion, saveCodingDraft, unpublishQuestion, validateWithReference, type ValidationReport } from "@/lib/actions/questions";
 import { composeProgram } from "@/lib/coding/compose";
 import { buildFunctionTemplate, parseBoilerplate, EDIT_START, EDIT_END } from "@/lib/coding/harness";
-import { checkTestInputShape, parseSignature } from "@/lib/coding/signature";
+import { checkTestInputShape, describeSignatureFormat, parseSignature } from "@/lib/coding/signature";
+import type { CompareMode } from "@/lib/coding/compare";
 import { cn } from "@/lib/utils";
 import type { ImportFlag, ParsedCoding } from "@/lib/import/text-parser";
 
@@ -42,7 +43,7 @@ export interface CodingForm {
   referenceSolution: string;
   timeLimitMs: number;
   memoryLimitMb: number;
-  compareMode: "exact" | "trim" | "tokens" | "float";
+  compareMode: CompareMode;
   floatTolerance: number;
   allowCustomInput: boolean;
   revealHidden: boolean;
@@ -102,14 +103,26 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
 
   const sigState = useMemo(() => {
     if (form.executionMode !== "function") return null;
-    if (!form.functionSignature.trim()) return { ok: false as const, message: "Enter the method signature" };
+    if (!form.functionSignature.trim()) {
+      if (form.boilerplateSource.trim()) return { ok: true as const, sig: null, message: "Custom driver: no method signature (class-design problem)" };
+      return { ok: false as const, message: "Enter the method signature (or paste a full boilerplate below to use your own driver)" };
+    }
     try {
       const s = parseSignature(form.functionSignature);
-      return { ok: true as const, sig: s, message: `${s.name}(${s.params.map((p) => p.type).join(", ")}) → ${s.returnType}` };
+      return { ok: true as const, sig: s as ReturnType<typeof parseSignature> | null, message: `${s.name}(${s.params.map((p) => p.type).join(", ")}) → ${s.returnType}` };
     } catch (e) {
       return { ok: false as const, message: (e as Error).message };
     }
-  }, [form.executionMode, form.functionSignature]);
+  }, [form.executionMode, form.functionSignature, form.boilerplateSource]);
+
+  const formatInfo = useMemo(() => {
+    if (!sigState?.ok || !sigState.sig) return null;
+    try {
+      return describeSignatureFormat(sigState.sig);
+    } catch {
+      return null;
+    }
+  }, [sigState]);
 
   const composed = useMemo(() => {
     try {
@@ -122,10 +135,11 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
         const bp = parseBoilerplate(form.boilerplateSource);
         prefix = bp.prefix; suffix = bp.suffix; if (!starter.trim()) starter = bp.starter;
       } else {
+        if (!sigState.sig) return { ok: false as const, message: "Enter the method signature to preview the program." };
         const t = buildFunctionTemplate(sigState.sig);
         prefix = t.prefix; suffix = t.suffix; if (!starter.trim()) starter = form.editableScope === "body" ? t.starterBody : t.starterMethod;
       }
-      const c = composeProgram({ executionMode: "function", editableScope: form.editableScope, functionSignature: sigState.sig.declaration, templatePrefix: prefix, templateSuffix: suffix }, starter);
+      const c = composeProgram({ executionMode: "function", editableScope: form.editableScope, functionSignature: sigState.sig?.declaration ?? null, templatePrefix: prefix, templateSuffix: suffix }, starter);
       return { ok: true as const, source: c.source };
     } catch (e) {
       return { ok: false as const, message: (e as Error).message };
@@ -395,7 +409,20 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
                   <Input value={form.functionSignature} onChange={(e) => set("functionSignature", e.target.value)} className="font-mono" placeholder="public static String maskCode(String code)" />
                 </Field>
                 <p className={cn("mt-1 text-xs", sigState?.ok ? "text-success" : "text-danger")}>{sigState?.message}</p>
-                <p className="mt-1 text-xs text-muted">Supported types: String, int, long, double, boolean, char, int[], long[], double[], boolean[], String[], and ArrayList&lt;String&gt; / List&lt;String&gt; (parameters only). Test inputs: one line per parameter; arrays are space-separated on one line; String[] is a count line followed by one line per element; a list is a count line followed by one line of space-separated items.</p>
+                <details className="mt-2 rounded-md border border-border bg-surface-2 p-3 text-xs text-muted">
+                  <summary className="cursor-pointer font-medium text-foreground">Supported types and how to write test inputs</summary>
+                  <div className="mt-2 space-y-1">
+                    <p>Any nesting of: int/long/double/boolean/char/short/byte/float (and their wrappers), String, arrays (<code>int[][]</code>, <code>char[][]</code>, <code>String[]</code>…), <code>List/ArrayList/LinkedList&lt;T&gt;</code>, <code>Set/HashSet/LinkedHashSet/TreeSet&lt;T&gt;</code>, <code>Map/HashMap/LinkedHashMap/TreeMap&lt;K,V&gt;</code> (K = String, Integer, Long, Character), <code>ListNode</code> and <code>TreeNode</code> (provided by the platform, LeetCode-style). A <code>void</code> method that edits its first parameter in place is also supported — that parameter&apos;s final state is the result.</p>
+                    <p>Inside generics use <code>Integer</code>, not <code>int</code>. Anything for a custom driver (LRU Cache, Min Stack, Trie…) goes in the boilerplate box below — leave the signature empty.</p>
+                  </div>
+                </details>
+                {formatInfo && (
+                  <div className="mt-2 rounded-md border border-border p-3 text-xs">
+                    <div className="font-medium text-foreground">Test input for this signature — one value per parameter, in order:</div>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted">{formatInfo.inputs.map((l, i) => <li key={i}>{l}</li>)}</ul>
+                    <div className="mt-1 text-muted"><span className="font-medium text-foreground">Expected output:</span> {formatInfo.output}</div>
+                  </div>
+                )}
               </div>
             )}
           </Panel>
@@ -415,7 +442,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
           <Panel>
             <PanelHeader title="Starter code (what the student sees)"
               actions={form.executionMode === "function" && sigState?.ok ? (
-                <Button size="sm" onClick={() => { const t = buildFunctionTemplate(sigState.sig); set("starterCode", form.editableScope === "body" ? t.starterBody : t.starterMethod); }}>Generate from signature</Button>
+                <Button size="sm" onClick={() => { if (!sigState.sig) return; const t = buildFunctionTemplate(sigState.sig); set("starterCode", form.editableScope === "body" ? t.starterBody : t.starterMethod); }}>Generate from signature</Button>
               ) : undefined} />
             <div className="h-64"><CodeEditor value={form.starterCode} onChange={(v) => set("starterCode", v)} /></div>
           </Panel>
@@ -430,8 +457,8 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
           <Panel className="grid gap-4 p-4 md:grid-cols-4">
             <Field label="Time limit per test (ms)"><Input type="number" min={100} max={15000} value={form.timeLimitMs} onChange={(e) => set("timeLimitMs", Number(e.target.value))} /></Field>
             <Field label="Memory limit (MB)"><Input type="number" min={32} max={1024} value={form.memoryLimitMb} onChange={(e) => set("memoryLimitMb", Number(e.target.value))} /></Field>
-            <Field label="Output comparison" hint={{ exact: "Exact: case & spacing matter; trailing spaces/newlines ignored.", trim: "Like exact, ignoring outer whitespace.", tokens: "Whitespace-insensitive, case-sensitive.", float: "Numbers compared within tolerance." }[form.compareMode]}>
-              <Select value={form.compareMode} onChange={(e) => set("compareMode", e.target.value as CodingForm["compareMode"])}><option value="exact">Exact (default)</option><option value="trim">Trim outer whitespace</option><option value="tokens">Token-by-token</option><option value="float">Floating point</option></Select>
+            <Field label="Output comparison" hint={{ exact: "Exact: case & spacing matter; trailing spaces/newlines ignored.", trim: "Like exact, ignoring outer whitespace.", tokens: "Whitespace-insensitive, case-sensitive.", float: "Numbers compared within tolerance.", json: "Compared as values: [1, 2] equals [1,2]. List order matters.", unordered: "Like JSON, but the order of the outermost list is ignored (\"return in any order\").", unordered_deep: "Like JSON, but the order of every list at every level is ignored (e.g. grouped anagrams)." }[form.compareMode]}>
+              <Select value={form.compareMode} onChange={(e) => set("compareMode", e.target.value as CodingForm["compareMode"])}><option value="exact">Exact (default)</option><option value="trim">Trim outer whitespace</option><option value="tokens">Token-by-token</option><option value="float">Floating point</option><option value="json">Structured value (JSON)</option><option value="unordered">Any order (outer list)</option><option value="unordered_deep">Any order (all lists)</option></Select>
             </Field>
             {form.compareMode === "float" && <Field label="Tolerance"><Input type="number" step="any" value={form.floatTolerance} onChange={(e) => set("floatTolerance", Number(e.target.value))} /></Field>}
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.allowCustomInput} onChange={(e) => set("allowCustomInput", e.target.checked)} /> Allow custom input on Run</label>
@@ -457,7 +484,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
           </div>
           {form.tests.length === 0 && <p className="rounded-md border border-dashed border-border-strong px-4 py-8 text-center text-sm text-muted">No tests yet. Public tests are visible to the student; hidden tests are only ever used for grading.</p>}
           {form.tests.map((t, i) => {
-            const shape = sigState?.ok && form.gradingMode === "auto" ? checkTestInputShape(sigState.sig, t.input) : null;
+            const shape = sigState?.ok && sigState.sig && form.gradingMode === "auto" ? checkTestInputShape(sigState.sig, t.input) : null;
             const upd = (patch: Partial<CodingForm["tests"][number]>) => set("tests", form.tests.map((x, k) => (k === i ? { ...x, ...patch } : x)));
             return (
               <Panel key={i} className={cn(t.visibility === "hidden" && "border-warning/50")}>

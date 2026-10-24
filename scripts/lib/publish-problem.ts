@@ -14,6 +14,7 @@ import { evaluate } from "../../src/lib/coding/evaluate";
 import { parseSignature } from "../../src/lib/coding/signature";
 import { buildFunctionTemplate } from "../../src/lib/coding/harness";
 import type { Runner } from "../../src/lib/runner/types";
+import type { CompareMode } from "../../src/lib/coding/compare";
 import type { SeedProblem } from "../seed/problems";
 
 export interface PublishContext {
@@ -34,7 +35,8 @@ export interface PublishResult {
 
 export async function createProblem(ctx: PublishContext, p: SeedProblem, opts: { isSeed: boolean; draftOnly: boolean }): Promise<PublishResult> {
   const { admin, svc, runner, runnerOk } = ctx;
-  const sig = p.mode === "function" ? parseSignature(p.signature!).declaration : "";
+  const customDriver = p.mode === "function" && !!p.boilerplate && !p.signature;
+  const sig = p.mode === "function" && !customDriver ? parseSignature(p.signature!).declaration : "";
   const tests = [
     ...p.publicTests.map((t, i) => ({ input: t.input, expected_output: t.output, visibility: "public" as const, weight: 1, label: `Example ${i + 1}` })),
     ...p.hiddenTests.map((t) => ({ input: t.input, expected_output: t.output, visibility: "hidden" as const, weight: 1, label: t.label ?? null })),
@@ -56,12 +58,13 @@ export async function createProblem(ctx: PublishContext, p: SeedProblem, opts: {
     config: {
       execution_mode: p.mode,
       function_signature: sig,
-      starter_code: p.mode === "function" ? buildFunctionTemplate(parseSignature(sig)).starterMethod : "",
+      starter_code: p.mode === "function" && !customDriver ? buildFunctionTemplate(parseSignature(sig)).starterMethod : "",
       compare_mode: p.compare ?? "exact",
       time_limit_ms: 2000,
       memory_limit_mb: 256,
     },
     reference_solution: p.reference,
+    boilerplate_source: p.boilerplate ?? "",
     tests,
   });
   const prep = prepareCoding(draft);
@@ -72,7 +75,7 @@ export async function createProblem(ctx: PublishContext, p: SeedProblem, opts: {
 
   let verified = false;
   if (runnerOk) {
-    const cfg = prep.payload.config as { editable_scope: "method" | "body"; time_limit_ms: number; memory_limit_mb: number; compare_mode: "exact" | "tokens" | "float"; float_tolerance: number; reveal_hidden: boolean };
+    const cfg = prep.payload.config as { editable_scope: "method" | "body"; time_limit_ms: number; memory_limit_mb: number; compare_mode: CompareMode; float_tolerance: number; reveal_hidden: boolean };
     const sec = prep.payload.secrets as { template_prefix: string; template_suffix: string };
     const out = await evaluate({
       config: {

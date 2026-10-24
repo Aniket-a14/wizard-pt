@@ -121,7 +121,7 @@ export function composeProgram(cfg: ComposeConfig, studentCode: string): Compose
   }
   const prefix = cfg.templatePrefix.replace(/\r\n/g, "\n");
   const suffix = cfg.templateSuffix.replace(/\r\n/g, "\n");
-  if (cfg.editableScope === "body") {
+  if (cfg.editableScope === "body" && (cfg.functionSignature ?? "").trim() !== "") {
     const sig = (cfg.functionSignature ?? "").trim();
     const head = `${sig} {\n`;
     const body = code.replace(/\n?$/, "\n");

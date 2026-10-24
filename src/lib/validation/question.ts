@@ -47,7 +47,7 @@ export const codingDraftSchema = z.object({
     starter_code: text(60_000).default(""),
     time_limit_ms: z.number().int().min(100).max(15_000).default(2000),
     memory_limit_mb: z.number().int().min(32).max(1024).default(256),
-    compare_mode: z.enum(["exact", "trim", "tokens", "float"]).default("exact"),
+    compare_mode: z.enum(["exact", "trim", "tokens", "float", "json", "unordered", "unordered_deep"]).default("exact"),
     float_tolerance: z.number().positive().max(1).default(1e-6),
     allow_custom_input: z.boolean().default(true),
     reveal_hidden: z.boolean().default(false),

@@ -15,7 +15,13 @@ export interface SeedProblem {
   examples: { input: string; output: string; explanation?: string }[];
   mode: "function" | "program";
   signature?: string;
-  compare?: "exact" | "tokens" | "float";
+  /**
+   * Optional full driver for class-design problems (LRU Cache, Min Stack, Trie…): a complete `Main` with the
+   * editable region between STUDENT CODE START/END marker lines. Leave `signature` empty when using it.
+   * The driver reads the operations from stdin and prints the whole output itself.
+   */
+  boilerplate?: string;
+  compare?: "exact" | "trim" | "tokens" | "float" | "json" | "unordered" | "unordered_deep";
   reference: string;
   publicTests: { input: string; output: string }[];
   hiddenTests: { input: string; output: string; label?: string }[];

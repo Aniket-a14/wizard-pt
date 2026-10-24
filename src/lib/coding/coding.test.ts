@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSignature, SignatureError, checkTestInputShape } from "./signature";
+import { parseSignature, SignatureError, checkTestInputShape, describeSignatureFormat } from "./signature";
 import { buildFunctionTemplate, parseBoilerplate, BoilerplateError, EDIT_START, EDIT_END } from "./harness";
 import { composeProgram, validateStudentCode, CodeValidationError, checkBalanced, mapCompileOutput } from "./compose";
 import { compareOutput, normaliseOutput } from "./compare";
@@ -21,19 +21,31 @@ describe("parseSignature", () => {
   });
   it("rejects non-static, unsupported types and garbage", () => {
     expect(() => parseSignature("public int f(int a)")).toThrow(SignatureError);
-    expect(() => parseSignature("public static List<Integer> f(int a)")).toThrow(SignatureError);
+    expect(() => parseSignature("public static Optional<Integer> f(int a)")).toThrow(SignatureError);
+    expect(() => parseSignature("public static Object f(int a)")).toThrow(SignatureError);
+    expect(() => parseSignature("public static int f(List<int> xs)")).toThrow(/Use Integer, not int/);
+    expect(() => parseSignature("public static int f(Map<Double, Integer> m)")).toThrow(/Map keys/);
+    expect(() => parseSignature("public static int f(List<Integer>[] xs)")).toThrow(/Arrays of List/);
     expect(() => parseSignature("public static void f(int a)")).toThrow(SignatureError);
     expect(() => parseSignature("hello world")).toThrow(SignatureError);
     expect(() => parseSignature("public static int f(int a, int a)")).toThrow(SignatureError);
   });
-  it("accepts ArrayList<String> / List<String> as parameters, but not as a return type", () => {
-    const s = parseSignature("public static int countTwinCodes(ArrayList<String> codes)");
-    expect(s.params).toEqual([{ type: "ArrayList<String>", name: "codes" }]);
-    expect(s.declaration).toBe("public static int countTwinCodes(ArrayList<String> codes)");
+  it("accepts list/set/map/array/node types anywhere, with nesting", () => {
+    const s1 = parseSignature("public static int countTwinCodes(ArrayList<String> codes)");
+    expect(s1.params).toEqual([{ type: "ArrayList<String>", name: "codes" }]);
     expect(parseSignature("public static int f(List < String >  xs, int k)").params.map((p) => p.type)).toEqual(["List<String>", "int"]);
-    expect(() => parseSignature("public static ArrayList<String> f(int n)")).toThrow(/parameters only/);
-    expect(() => parseSignature("public static int f(ArrayList<Integer> xs)")).toThrow(SignatureError);
-    expect(() => parseSignature("public static int f(Map<String, Integer> m)")).toThrow(SignatureError);
+    expect(parseSignature("public static List<List<Integer>> perms(int[] nums)").returnType).toBe("List<List<Integer>>");
+    expect(parseSignature("public static Map<String, List<Integer>> g(String[][] pairs)").returnType).toBe("Map<String, List<Integer>>");
+    expect(parseSignature("public static ListNode reverse(ListNode head)").returnType).toBe("ListNode");
+    expect(parseSignature("public static TreeNode invert(TreeNode root)").params[0].type).toBe("TreeNode");
+    expect(parseSignature("public static int[][] merge(int[][] intervals)").returnType).toBe("int[][]");
+    expect(parseSignature("public static boolean f(Set<Integer> a, Integer[] b, char[][] grid)").params.map((p) => p.type)).toEqual(["Set<Integer>", "Integer[]", "char[][]"]);
+    expect(parseSignature("public static int f(int... nums)").params[0].type).toBe("int[]");
+  });
+  it("supports void in-place methods only when the first parameter is mutable", () => {
+    expect(parseSignature("public static void rotate(int[] nums, int k)").returnType).toBe("void");
+    expect(() => parseSignature("public static void f(int a)")).toThrow(/void method must take/);
+    expect(() => parseSignature("public static void f(String s)")).toThrow(/void method must take/);
   });
   it("checks list input shape (count line + one line of items that must match the count)", () => {
     const s = parseSignature("public static int f(ArrayList<String> codes)");
@@ -41,6 +53,17 @@ describe("parseSignature", () => {
     expect(checkTestInputShape(s, "0\n")).toBeNull();
     expect(checkTestInputShape(s, "3\nABC DEF")).toMatch(/count line says 3 but the next line has 2/);
     expect(checkTestInputShape(s, "x\nABC")).toMatch(/count line/);
+  });
+  it("checks grid and JSON input shapes, and describes them", () => {
+    const g = parseSignature("public static int f(int[][] grid, List<List<Integer>> nested, TreeNode root)");
+    expect(checkTestInputShape(g, "2\n1 2\n3 4\n[[1],[2,3]]\n[1,null,2]")).toBeNull();
+    expect(checkTestInputShape(g, "3\n1 2\n3 4")).toMatch(/3 rows but only 2 follow/);
+    expect(checkTestInputShape(g, "1\n1 2\n[[1],\n[1]")).toMatch(/valid JSON/);
+    expect(checkTestInputShape(g, "1\n1 2\n[[1]]\n5")).toMatch(/must be a JSON array/);
+    const f = describeSignatureFormat(g);
+    expect(f.inputs[0]).toMatch(/row-count line/);
+    expect(f.inputs[1]).toMatch(/JSON/);
+    expect(f.inputs[2]).toMatch(/level order/);
   });
   it("checks input shape", () => {
     const s = parseSignature("public static int f(int[] a, int k)");
@@ -161,6 +184,24 @@ describe("compareOutput", () => {
     expect(compareOutput("0.34", "0.33", { mode: "float", floatTolerance: 1e-6 }).ok).toBe(false);
     expect(compareOutput("x 1.0", "x 1", { mode: "float" }).ok).toBe(true);
   });
+  it("json mode compares values, ignoring spacing, but list order matters", () => {
+    expect(compareOutput("[1,2,3]", "[1, 2, 3]", { mode: "json" }).ok).toBe(true);
+    expect(compareOutput("[[1,2],[3]]", "[[1, 2], [3]]", { mode: "json" }).ok).toBe(true);
+    expect(compareOutput("[1,3,2]", "[1,2,3]", { mode: "json" }).ok).toBe(false);
+    expect(compareOutput('{"a":1,"b":2}', '{"b":2,"a":1}', { mode: "json" }).ok).toBe(true);
+    expect(compareOutput("9007199254740993", "9007199254740992", { mode: "json" }).ok).toBe(false); // no precision loss
+    expect(compareOutput("0.30000001", "0.3", { mode: "json", floatTolerance: 1e-6 }).ok).toBe(true);
+  });
+  it("unordered ignores outer list order only; unordered_deep ignores every level", () => {
+    expect(compareOutput("[[3],[1,2]]", "[[1,2],[3]]", { mode: "unordered" }).ok).toBe(true);
+    expect(compareOutput("[[3],[2,1]]", "[[1,2],[3]]", { mode: "unordered" }).ok).toBe(false);
+    expect(compareOutput("[[3],[2,1]]", "[[1,2],[3]]", { mode: "unordered_deep" }).ok).toBe(true);
+    expect(compareOutput("[[3],[2,1]]", "[[1,2],[4]]", { mode: "unordered_deep" }).ok).toBe(false);
+    // plain (non-JSON) outputs: values per token, or per line
+    expect(compareOutput("3 1 2", "1 2 3", { mode: "unordered" }).ok).toBe(true);
+    expect(compareOutput("b\na\nc", "a\nb\nc", { mode: "unordered" }).ok).toBe(true);
+    expect(compareOutput("a\nb\nb", "a\nb\nc", { mode: "unordered" }).ok).toBe(false);
+  });
   it("normaliseOutput", () => expect(normaliseOutput("a \r\nb\n\n")).toBe("a\nb"));
 });
 
@@ -209,6 +250,28 @@ describe("prepareCoding", () => {
     config: { function_signature: "public static String maskCode(String code)", starter_code: "" },
     tests: [{ input: "AB-12-CD", expected_output: "DC-12-BA", visibility: "public" as const }],
   };
+  it("switches structured (JSON) results to structural comparison, and leaves plain results alone", () => {
+    const json = prepareCoding(codingDraftSchema.parse({ ...base, config: { function_signature: "public static List<List<Integer>> f(int[] a)", starter_code: "" }, tests: [{ input: "1 2", expected_output: "[[1],[2]]", visibility: "public" as const }] }));
+    expect(json.ok && (json.payload.config as { compare_mode: string }).compare_mode).toBe("json");
+    expect(json.ok && json.warnings.join(" ")).toMatch(/structured/);
+    const asked = prepareCoding(codingDraftSchema.parse({ ...base, config: { function_signature: "public static List<List<Integer>> f(int[] a)", starter_code: "", compare_mode: "unordered_deep" }, tests: [{ input: "1 2", expected_output: "[[1],[2]]", visibility: "public" as const }] }));
+    expect(asked.ok && (asked.payload.config as { compare_mode: string }).compare_mode).toBe("unordered_deep"); // an explicit choice is kept
+    const plain = prepareCoding(codingDraftSchema.parse(base));
+    expect(plain.ok && (plain.payload.config as { compare_mode: string }).compare_mode).toBe("exact");
+    const inPlace = prepareCoding(codingDraftSchema.parse({ ...base, config: { function_signature: "public static void rotate(int[] nums, int k)", starter_code: "" }, tests: [{ input: "1 2 3\n1", expected_output: "3 1 2", visibility: "public" as const }] }));
+    expect(inPlace.ok && (inPlace.payload.config as { compare_mode: string }).compare_mode).toBe("exact"); // void + int[] prints plain tokens
+  });
+  it("supports a custom driver with no signature (class-design problems)", () => {
+    const bp = `import java.util.*;\npublic class Main {\n${EDIT_START}\nstatic class Q { }\n${EDIT_END}\n public static void main(String[] a) { System.out.println(1); }\n}`;
+    const r = prepareCoding(codingDraftSchema.parse({ ...base, config: { function_signature: "", starter_code: "" }, boilerplate_source: bp }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect((r.payload.config as { function_signature: string; starter_code: string }).function_signature).toBe("");
+    expect((r.payload.config as { starter_code: string }).starter_code).toContain("static class Q");
+    expect((r.payload.secrets as { template_suffix: string }).template_suffix).toContain("public static void main");
+    // without a boilerplate an empty signature is still an error
+    expect(prepareCoding(codingDraftSchema.parse({ ...base, config: { function_signature: "", starter_code: "" } })).ok).toBe(false);
+  });
   it("generates wrapper + starter from the signature", () => {
     const r = prepareCoding(codingDraftSchema.parse(base));
     expect(r.ok).toBe(true);

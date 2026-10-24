@@ -1,6 +1,6 @@
 import type { CodingDraft } from "@/lib/validation/question";
 import { buildFunctionTemplate, parseBoilerplate, BoilerplateError } from "./harness";
-import { checkTestInputShape, parseSignature, SignatureError } from "./signature";
+import { checkTestInputShape, parseSignature, returnJType, paramTypes, SignatureError, usesJsonOutput } from "./signature";
 
 export type PrepareResult =
   | { ok: true; payload: Record<string, unknown>; warnings: string[] }
@@ -29,8 +29,23 @@ export function prepareCoding(d: CodingDraft): PrepareResult {
   let suffix = "";
   let starter = c.starter_code;
   let signature: string | null = null;
+  let compareMode = c.compare_mode;
+  let editableScope = c.editable_scope;
 
-  if (c.execution_mode === "function") {
+  if (c.execution_mode === "function" && c.function_signature.trim() === "" && d.boilerplate_source.trim() !== "") {
+    // Class-design / custom-driver problem (LRU Cache, Min Stack, Trie…): the admin's boilerplate owns main(),
+    // reads the operations from stdin and prints the results; the student edits only the marked region.
+    try {
+      const bp = parseBoilerplate(d.boilerplate_source);
+      prefix = bp.prefix;
+      suffix = bp.suffix;
+      if (!starter.trim()) starter = bp.starter;
+      editableScope = "method";
+    } catch (e) {
+      if (e instanceof BoilerplateError) fieldErrors["boilerplate_source"] = e.message;
+      else throw e;
+    }
+  } else if (c.execution_mode === "function") {
     try {
       const sig = parseSignature(c.function_signature);
       signature = sig.declaration;
@@ -47,6 +62,13 @@ export function prepareCoding(d: CodingDraft): PrepareResult {
       }
       if (c.editable_scope === "method" && !new RegExp(`\\b${sig.name.replace(/\$/g, "\\$")}\\s*\\(`).test(starter)) {
         warnings.push(`The starter code does not contain the method "${sig.name}".`);
+      }
+      // Structured results (lists of lists, maps, trees…) are compared as values, so "[1, 2]" and "[1,2]" agree.
+      const ret = returnJType(sig);
+      const outType = ret.k === "void" ? paramTypes(sig)[0].j : ret;
+      if (usesJsonOutput(outType) && compareMode === "exact") {
+        compareMode = "json";
+        warnings.push("This problem's result is structured (JSON), so output comparison was set to \"JSON (structural)\" instead of exact text.");
       }
       if (c.grading_mode === "auto") {
         d.tests.forEach((t, i) => {
@@ -87,7 +109,7 @@ export function prepareCoding(d: CodingDraft): PrepareResult {
       review_flags: d.review_flags,
       explanation_md: d.explanation_md,
       import_id: d.import_id ?? null,
-      config: { ...c, function_signature: signature ?? "", starter_code: starter },
+      config: { ...c, function_signature: signature ?? "", starter_code: starter, compare_mode: compareMode, editable_scope: editableScope },
       secrets: {
         template_prefix: prefix,
         template_suffix: suffix,
