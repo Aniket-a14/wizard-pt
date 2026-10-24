@@ -20,6 +20,7 @@ export function NavLinks({ items }: { items: NavItem[] }) {
           <Link
             key={i.href}
             href={i.href}
+            prefetch // the nav is only a handful of pages: load their data ahead of the click, not just the shell
             aria-current={active ? "page" : undefined}
             className={cn(
               "rounded-md px-2.5 py-1 text-sm transition-colors",
