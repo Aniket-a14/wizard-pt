@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
+// Every page is per-user and authenticated, so nothing is statically cached.
+// (cacheComponents / partialPrefetching from the scaffold are intentionally off.)
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  serverExternalPackages: ["unpdf"],
   turbopack: {
     rules: {
       "*.css": {
@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+  },
+  experimental: {
+    serverActions: { bodySizeLimit: "16mb" },
   },
 };
 
