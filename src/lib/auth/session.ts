@@ -21,16 +21,22 @@ export class AuthError extends Error {
   }
 }
 
-/** Verified user (token validated with the Supabase Auth server) + profile role, or null. */
+/**
+ * Verified user + profile role, or null. The token's signature and expiry are checked locally (getClaims),
+ * so the only database round trip is the profile read — which also enforces `active`, so a deactivated
+ * student is locked out immediately even though their token stays valid until it expires.
+ */
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return null;
-  const { data: profile } = await supabase.from("profiles").select("display_name, role, active").eq("id", data.user.id).maybeSingle();
+  const { data, error } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (error || !claims?.sub) return null;
+  const userId = claims.sub;
+  const { data: profile } = await supabase.from("profiles").select("display_name, role, active").eq("id", userId).maybeSingle();
   if (!profile || !profile.active) return null; // not provisioned, or deactivated by the admin: treated as signed out
   return {
-    id: data.user.id,
-    email: data.user.email ?? "",
+    id: userId,
+    email: typeof claims.email === "string" ? claims.email : "",
     displayName: profile.display_name,
     role: profile.role as Role,
   };

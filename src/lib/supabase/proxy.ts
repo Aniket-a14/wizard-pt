@@ -19,9 +19,10 @@ export async function updateSession(request: NextRequest) {
       },
     },
   );
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verifies the access token's signature locally (cached public keys) and only calls the auth server
+  // to refresh an expiring session — no network round trip on a normal request.
+  const { data: auth } = await supabase.auth.getClaims();
+  const user = auth?.claims ?? null;
 
   const path = request.nextUrl.pathname;
   const protectedArea = path.startsWith("/admin") || path.startsWith("/student") || path.startsWith("/api/code");
