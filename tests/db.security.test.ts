@@ -181,6 +181,47 @@ describe("authorization", () => {
   });
 });
 
+describe("hardening (privileges, not just policies)", () => {
+  it("assert_admin() is not callable through the API by anyone, and anon reads no table", async () => {
+    for (const client of [student.client, admin.client, anon()]) {
+      const r = await client.rpc("assert_admin");
+      expect(r.error).not.toBeNull();
+    }
+    for (const table of ["questions", "profiles", "notifications", "code_submissions"] as const) {
+      const r = await anon().from(table).select("*").limit(1);
+      expect(r.error?.code, table).toBe("42501"); // no privilege at all (previously: empty result via RLS)
+    }
+  });
+
+  it("students cannot write grading tables even for their own rows", async () => {
+    const ins = await student.client.from("code_submissions").insert({ student_id: student.id, question_version_id: crypto.randomUUID(), source_code: "x", idempotency_key: "hard-12345", max_marks: 1, verdict: "accepted", status: "completed" });
+    expect(ins.error?.code).toBe("42501"); // permission denied: no privilege (and no policy)
+    const upd = await student.client.from("code_submissions").update({ verdict: "accepted", score_pct: 100 }).eq("student_id", student.id);
+    expect(upd.error?.code).toBe("42501");
+    const keys = { assessment_attempts: "id", attempt_answers: "attempt_id", attempt_grades: "attempt_id", code_runs: "id", code_submission_private: "submission_id" } as const;
+    for (const [table, key] of Object.entries(keys)) {
+      const r = await student.client.from(table as keyof typeof keys).delete().not(key, "is", null);
+      expect(r.error?.code, table).toBe("42501");
+    }
+  });
+
+  it("a student cannot keep a draft for a problem she cannot see, nor an oversized one", async () => {
+    const hidden = await createCodingDraft(admin, { title: "Unpublished draft" });
+    created.push(hidden.version_id);
+    const r = await student.client.from("code_drafts").insert({ student_id: student.id, question_version_id: hidden.version_id, source_code: "class A {}" });
+    expect(r.error).not.toBeNull();
+    const big = await service().from("code_drafts").insert({ student_id: student.id, question_version_id: hidden.version_id, source_code: "x".repeat(70_001) });
+    expect(big.error?.message).toMatch(/code_drafts_source_len/);
+  });
+
+  it("the submission size limit is enforced by the database, not only the API", async () => {
+    const v = await createCodingDraft(admin, { title: "Size limit" });
+    created.push(v.version_id);
+    const big = await service().from("code_submissions").insert({ student_id: student.id, question_version_id: v.version_id, source_code: "x".repeat(70_001), idempotency_key: "hard-big-1", max_marks: 1 });
+    expect(big.error?.message).toMatch(/code_submissions_source_len/);
+  });
+});
+
 describe("realtime", () => {
   it("student receives a push when admin publishes (private, RLS-filtered stream)", async () => {
     const received: string[] = [];
