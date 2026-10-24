@@ -1,10 +1,10 @@
 # Wizard PT
 
-A private coding + MCQ practice platform for two people: an **administrator** who writes and publishes questions, and a **student** who solves them in a LeetCode-style workspace. Java code is compiled and run in an isolated sandbox, graded against public and hidden tests, and reviewed by the admin.
+A private coding + MCQ practice platform: one **administrator** who writes and publishes questions, and **any number of students** who solve them in a LeetCode-style workspace. Everything the admin publishes reaches every active student; each student's drafts, submissions, scores and feedback are private to them. Java code is compiled and run in an isolated sandbox, graded against public and hidden tests, and reviewed by the admin.
 
 ```
-admin pastes / uploads a question → reviews it → publishes → student receives it live
-→ student runs / submits → system grades it → admin reviews code and gives feedback
+admin pastes / uploads a question → reviews it → publishes → every student receives it live
+→ each student runs / submits → system grades it → admin reviews each submission and gives feedback
 ```
 
 **Live:** https://wizard-pt.vercel.app (private; sign-in only, no public registration)
@@ -30,7 +30,8 @@ pnpm db:reset                            # applies supabase/migrations
 In `.env.local` for local development set `RUNNER_PROVIDER=docker`, the three Supabase values, and the bootstrap credentials (`ADMIN_*`, `STUDENT_*`).
 
 ```bash
-pnpm bootstrap                           # creates the two accounts (see "Accounts")
+pnpm bootstrap                           # creates the admin and a first student (see "Accounts")
+pnpm student:add "Name" email@x.com      # any further student (or use the admin's Students page)
 pnpm seed                                # optional demo content (verified in the sandbox)
 pnpm dev                                 # http://localhost:3000
 ```
@@ -39,7 +40,7 @@ Sign in with the credentials you set. The admin lands on `/admin`, the student o
 
 ### Accounts
 
-Public sign-up is disabled (`supabase/config.toml` → `[auth] enable_signup = false`, and users have no way to create profiles). `pnpm bootstrap` is the only provisioning path: it reads `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STUDENT_EMAIL`, `STUDENT_PASSWORD` from the environment (or prompts for them), creates/updates both users with the service-role key, and writes their `profiles` row (role lives **only** in `profiles`, and users cannot change it). No credentials are committed or hardcoded; remove them from your env after running it. Re-running resets the passwords to the supplied values.
+Public sign-up is disabled (`supabase/config.toml` → `[auth] enable_signup = false`, and users have no way to create profiles). Accounts are provisioned by the admin only. **The admin adds students on the *Students* page** (name, email, optional password: a strong one is generated and shown once), can reset a student's password, and can deactivate/reactivate a student: deactivation signs them out, blocks sign-in and removes their access in the database (RLS), while keeping their history. `pnpm student:add "Name" email [password] [--env .env.cloud]` does the same from a terminal. The first admin comes from `pnpm bootstrap`: it reads `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STUDENT_EMAIL`, `STUDENT_PASSWORD` from the environment (or prompts for them), creates/updates the admin (and the optional first student) with the service-role key, and writes their `profiles` row (role lives **only** in `profiles`, and users cannot change it). No credentials are committed or hardcoded; remove them from your env after running it. Re-running resets the passwords to the supplied values.
 
 ### Adding a problem from a written spec
 
@@ -113,7 +114,7 @@ Covered: signature/harness/composition/comparison/scoring; text and PDF importer
 ## Deployment
 
 1. **Supabase project:** create it, then `pnpm exec supabase link --project-ref …` and `pnpm db:push` (applies migrations, creates the buckets, adds `notifications` to the realtime publication). In *Authentication → Providers → Email* keep email sign-in on and **disable "Allow new users to sign up"**. Optionally set a password policy.
-2. **Provision users:** with `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SECRET_KEY` pointing at the cloud project and the `ADMIN_*`/`STUDENT_*` variables set, run `pnpm bootstrap`.
+2. **Provision users:** with `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SECRET_KEY` pointing at the cloud project and the `ADMIN_*`/`STUDENT_*` variables set, run `pnpm bootstrap` for the admin, then add students from the admin's **Students** page.
 3. **Runner:** self-host Judge0 on a cgroup-v1 Linux VM or use a hosted Judge0 plan, or set `RUNNER_PROVIDER=manual` (see *Code execution*) to deploy without an execution service.
 4. **Vercel:** import the repo, set the variables from `.env.example` (`RUNNER_PROVIDER=judge0`, `JUDGE0_*`, the Supabase trio, `NEXT_PUBLIC_APP_NAME`). The submit route uses `after()` and `maxDuration` — a plan/Fluid-compute setting that allows ≥ 60 s is recommended; the poll endpoint also re-kicks stalled jobs, so a shorter limit degrades gracefully.
 5. In Supabase **Auth → URL configuration** set the site URL to your Vercel domain.
@@ -128,7 +129,7 @@ Covered: signature/harness/composition/comparison/scoring; text and PDF importer
 * PDF import needs a text layer; there is no OCR. Question detection is heuristic, which is why everything passes through an editable review step.
 * Monaco is loaded from a CDN at runtime.
 * Memory usage is reported only where the runner provides it (Judge0); the Docker runner reports time only.
-* Copy-paste/proctoring/plagiarism detection are out of scope (private two-person use).
+* Copy-paste/proctoring/plagiarism detection are out of scope (private use).
 
 ## Final verification checklist
 

@@ -65,7 +65,7 @@ test("admin imports MCQs → builds & publishes a quiz → student takes it → 
   }
   await expect(admin.getByText(/Selected questions \(3\)/)).toBeVisible();
   await admin.getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(admin.getByText(/Published — the student is notified/)).toBeVisible();
+  await expect(admin.getByText(/Published — every student is notified/)).toBeVisible();
   await expect(admin).toHaveURL(/\/admin\/quizzes\/[0-9a-f-]{36}/);
   const quizUrl = admin.url();
 

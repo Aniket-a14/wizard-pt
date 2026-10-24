@@ -30,7 +30,7 @@ export function ReviewForm({ target, id, initial, defaultMax, suggestedMarks }: 
       const r = await saveReview({ target, id, status: f.status, marks: f.marks, maxMarks: f.maxMarks, comments: f.comments, suggestions: f.suggestions, explanation: f.explanation, publish });
       if (!r.ok) return void toast.error(r.error);
       setF((c) => ({ ...c, publishedAt: r.publishedAt }));
-      toast.success(publish ? "Feedback published — the student is notified" : "Draft saved (not visible to the student)");
+      toast.success(publish ? "Feedback published — the student who submitted it is notified" : "Draft saved (not visible to the student who submitted it)");
       router.refresh();
     });
   }

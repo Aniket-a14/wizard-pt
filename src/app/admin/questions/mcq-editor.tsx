@@ -132,7 +132,7 @@ export function McqEditor({ initial, status, version, versionPublished }: { init
           <Button variant="primary" onClick={onSave} disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
         </div>
       </div>
-      <p className="text-sm text-muted">MCQs reach the student through a quiz — add this question to one in <strong>Quizzes</strong>. Publishing the quiz freezes this version.</p>
+      <p className="text-sm text-muted">MCQs reach students through a quiz — add this question to one in <strong>Quizzes</strong>. Publishing the quiz freezes this version.</p>
       {versionPublished && <p className="rounded-md bg-accent-soft px-3 py-2 text-sm text-accent">v{version} is frozen because a published quiz uses it. Saving creates v{version + 1}; existing quizzes and attempts keep v{version}.</p>}
       {form.reviewFlags.length > 0 && (
         <Panel className="border-warning/40 bg-warning-soft px-4 py-3">

@@ -1,4 +1,6 @@
 import { EmptyState, PageHeader, Panel, PanelHeader, Stat } from "@/components/ui/panel";
+import Link from "next/link";
+import { formatDateTime } from "@/lib/utils";
 import { getAdminAnalytics } from "@/lib/admin/analytics";
 
 export const metadata = { title: "Analytics" };
@@ -16,7 +18,27 @@ export default async function Analytics() {
         <Stat label="Problems solved" value={a.acceptedProblems} />
         <Stat label="Pending reviews" value={a.pendingReviews} />
       </div>
-      {none ? <div className="mt-6"><EmptyState title="No data yet">Charts appear once the student has submitted work.</EmptyState></div> : (
+      {a.perStudent.length > 1 && (
+        <Panel className="mt-6 overflow-x-auto">
+          <PanelHeader title="Students" actions={<Link href="/admin/students" className="text-xs text-accent underline">Manage</Link>} />
+          <table className="table-dense w-full text-sm">
+            <thead><tr><th>Student</th><th>Coding submissions</th><th>Problems solved</th><th>Quizzes</th><th>Avg quiz</th><th>Last active</th></tr></thead>
+            <tbody>
+              {a.perStudent.map((s) => (
+                <tr key={s.id} className={s.active ? "" : "opacity-60"}>
+                  <td className="font-medium"><Link href={`/admin/submissions?student=${s.id}`} className="hover:text-accent hover:underline">{s.name}</Link>{!s.active && <span className="ml-1 text-xs text-warning">deactivated</span>}</td>
+                  <td className="tabular-nums">{s.submissions}</td>
+                  <td className="tabular-nums">{s.accepted}</td>
+                  <td className="tabular-nums">{s.quizzes}</td>
+                  <td className="tabular-nums">{s.avgQuizPct === null ? "—" : `${Math.round(s.avgQuizPct)}%`}</td>
+                  <td className="text-muted">{s.lastActive ? formatDateTime(s.lastActive) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      )}
+      {none ? <div className="mt-6"><EmptyState title="No data yet">Charts appear once students have submitted work.</EmptyState></div> : (
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
           <Panel className="lg:col-span-2">
             <PanelHeader title="Coding submissions per day (last 30 days)" />

@@ -230,7 +230,7 @@ export function CodingEditor({ initial, meta }: { initial: CodingForm; meta: Cod
       if (!r) return;
       const p = await publishCodingQuestion(r.questionId);
       if (!p.ok) return void toast.error(p.error);
-      toast.success("Published — the student is notified");
+      toast.success("Published — every student is notified");
       router.replace(`/admin/questions/${r.questionId}`);
       router.refresh();
     });

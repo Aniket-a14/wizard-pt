@@ -37,6 +37,7 @@
     "seed:remove": "tsx scripts/seed.ts --remove",
     "grade": "tsx --conditions=react-server scripts/grade-pending.ts",
     "problem:add": "tsx scripts/add-problem.ts",
+    "student:add": "tsx scripts/add-student.ts",
     "db:start": "supabase start -x imgproxy,vector,logflare,edge-runtime,studio",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push",

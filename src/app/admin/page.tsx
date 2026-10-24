@@ -32,7 +32,7 @@ export default async function AdminHome() {
       </div>
       <Panel className="mt-6">
         <PanelHeader title="Recent activity" actions={<Link href="/admin/submissions" className="text-xs text-accent underline">All submissions</Link>} />
-        {a.recent.length === 0 ? <div className="p-4"><EmptyState title="No submissions yet">When the student submits work it appears here (and as a notification).</EmptyState></div> : (
+        {a.recent.length === 0 ? <div className="p-4"><EmptyState title="No submissions yet">When a student submits work it appears here (and as a notification).</EmptyState></div> : (
           <ul className="divide-y divide-border text-sm">
             {a.recent.map((r) => (
               <li key={`${r.kind}-${r.id}`}><Link href={`/admin/submissions/${r.kind}/${r.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2"><Badge>{r.kind === "code" ? "Code" : "Quiz"}</Badge><span className="font-medium">{r.title}</span><span className="text-muted capitalize">{r.detail}</span><span className="ml-auto text-xs text-muted">{formatDateTime(r.at)}</span></Link></li>

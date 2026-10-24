@@ -59,7 +59,7 @@ export function QuizBuilder({ bank, initial }: { bank: BankQuestion[]; initial: 
   const publish = () => save(async (id) => {
     const r = await publishQuiz(id);
     if (!r.ok) { toast.error(r.error); if (!initial) router.replace(`/admin/quizzes/${id}`); return; }
-    toast.success("Published — the student is notified");
+    toast.success("Published — every student is notified");
     router.replace(`/admin/quizzes/${id}`);
     router.refresh();
   });

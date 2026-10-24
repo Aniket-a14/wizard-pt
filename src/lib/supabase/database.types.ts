@@ -373,14 +373,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "created_at": string,"display_name": string,"id": string,"role": string
+                    "active": boolean,"created_at": string,"display_name": string,"id": string,"role": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"display_name": string,"id": string,"role": string
+                    "active"?: boolean,"created_at"?: string,"display_name": string,"id": string,"role": string
                   }
                   Update: {
-                    "created_at"?: string,"display_name"?: string,"id"?: string,"role"?: string
+                    "active"?: boolean,"created_at"?: string,"display_name"?: string,"id"?: string,"role"?: string
                   }
                   Relationships: [
                     

@@ -1,5 +1,6 @@
 /**
- * Provision the two accounts (admin + student). Idempotent.
+ * Provision the admin and a first student. Idempotent. Add more students with `pnpm student:add`
+ * (or on the admin's Students page).
  *
  * Credentials come from the environment (or an interactive prompt) — nothing is hardcoded or
  * committed. Public sign-up is disabled in Supabase; this script uses the service-role key.
@@ -30,10 +31,13 @@ async function main() {
   if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY must be set");
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  const users = [
-    { role: "admin" as const, email: await ask("ADMIN_EMAIL", "Admin email"), password: await ask("ADMIN_PASSWORD", "Admin password", true), name: process.env.ADMIN_NAME || "Admin" },
-    { role: "student" as const, email: await ask("STUDENT_EMAIL", "Student email"), password: await ask("STUDENT_PASSWORD", "Student password", true), name: process.env.STUDENT_NAME || "Student" },
+  const users: { role: "admin" | "student"; email: string; password: string; name: string }[] = [
+    { role: "admin", email: await ask("ADMIN_EMAIL", "Admin email"), password: await ask("ADMIN_PASSWORD", "Admin password", true), name: process.env.ADMIN_NAME || "Admin" },
   ];
+  // The first student is optional: students can be added any time from the admin's Students page.
+  if (process.env.STUDENT_EMAIL || process.stdin.isTTY) {
+    users.push({ role: "student", email: await ask("STUDENT_EMAIL", "Student email"), password: await ask("STUDENT_PASSWORD", "Student password", true), name: process.env.STUDENT_NAME || "Student" });
+  }
 
   for (const u of users) {
     if (u.password.length < 8) throw new Error(`${u.role} password must be at least 8 characters`);

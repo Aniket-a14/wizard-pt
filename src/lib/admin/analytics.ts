@@ -15,17 +15,19 @@ export interface AdminAnalytics {
   frequentlyFailed: { title: string; submissions: number; accepted: number; failRate: number }[];
   weakTopics: { topic: string; kind: string; rate: number; n: number }[];
   perDay: { day: string; submissions: number; accepted: number }[];
+  perStudent: { id: string; name: string; active: boolean; submissions: number; accepted: number; quizzes: number; avgQuizPct: number | null; lastActive: string | null }[];
   recent: { kind: "code" | "quiz"; id: string; title: string; detail: string; at: string }[];
 }
 
 /** All figures are computed from real rows via the admin's RLS-scoped client. */
 export async function getAdminAnalytics(): Promise<AdminAnalytics> {
   const supabase = await createClient();
-  const [qs, quizzes, codeSubs, attempts, grades, reviews] = await Promise.all([
+  const [studentRows, qs, quizzes, codeSubs, attempts, grades, reviews] = await Promise.all([
+    supabase.from("profiles").select("id, display_name, active").eq("role", "student").order("display_name"),
     supabase.from("questions").select("id, type, status"),
     supabase.from("assessments").select("id, status"),
-    supabase.from("code_submissions").select("id, status, verdict, submitted_at, v:question_versions(question_id, title, topic)").order("submitted_at", { ascending: false }),
-    supabase.from("assessment_attempts").select("id, score, max_score, submitted_at, a:assessments(title)").eq("status", "submitted").order("submitted_at", { ascending: false }),
+    supabase.from("code_submissions").select("id, student_id, status, verdict, submitted_at, v:question_versions(question_id, title, topic)").order("submitted_at", { ascending: false }),
+    supabase.from("assessment_attempts").select("id, student_id, score, max_score, submitted_at, a:assessments(title)").eq("status", "submitted").order("submitted_at", { ascending: false }),
     supabase.from("attempt_grades").select("is_correct, v:question_versions(topic)"),
     supabase.from("reviews").select("code_submission_id, attempt_id"),
   ]);
@@ -75,6 +77,23 @@ export async function getAdminAnalytics(): Promise<AdminAnalytics> {
   const pcts = (attempts.data ?? []).filter((t) => t.max_score && Number(t.max_score) > 0).map((t) => (Number(t.score) / Number(t.max_score)) * 100);
   const gAll = grades.data ?? [];
 
+  const perStudent = (studentRows.data ?? []).map((st) => {
+    const mine = done.filter((s) => s.student_id === st.id);
+    const quizzesDone = (attempts.data ?? []).filter((t) => t.student_id === st.id);
+    const scored = quizzesDone.filter((t) => t.max_score && Number(t.max_score) > 0);
+    const last = [...mine.map((s) => s.submitted_at), ...quizzesDone.map((t) => t.submitted_at ?? "")].filter(Boolean).sort().pop() ?? null;
+    return {
+      id: st.id,
+      name: st.display_name,
+      active: st.active,
+      submissions: mine.length,
+      accepted: new Set(mine.filter((s) => s.verdict === "accepted").map((s) => s.v?.question_id)).size,
+      quizzes: quizzesDone.length,
+      avgQuizPct: scored.length ? scored.reduce((n, t) => n + (Number(t.score) / Number(t.max_score)) * 100, 0) / scored.length : null,
+      lastActive: last,
+    };
+  });
+
   return {
     codingQuestions: count("coding"),
     mcqQuestions: count("mcq"),
@@ -88,6 +107,7 @@ export async function getAdminAnalytics(): Promise<AdminAnalytics> {
     mcqAccuracy: gAll.length ? (gAll.filter((g) => g.is_correct).length / gAll.length) * 100 : null,
     frequentlyFailed: [...byProblem.values()].map((p) => ({ ...p, failRate: p.submissions ? ((p.submissions - p.accepted) / p.submissions) * 100 : 0 })).filter((p) => p.submissions >= 1 && p.failRate > 0).sort((a, b) => b.failRate - a.failRate || b.submissions - a.submissions).slice(0, 8),
     weakTopics: [...byTopic.entries()].map(([k, v]) => { const [kind, topic] = k.split("|"); return { topic, kind, rate: (v.ok / v.n) * 100, n: v.n }; }).sort((a, b) => a.rate - b.rate).slice(0, 8),
+    perStudent,
     perDay: [...days.entries()].map(([day, v]) => ({ day, ...v })),
     recent: [
       ...(codeSubs.data ?? []).slice(0, 8).map((s) => ({ kind: "code" as const, id: s.id, title: s.v?.title ?? "Problem", detail: s.status === "completed" ? (s.verdict ?? "").replace(/_/g, " ") : s.status, at: s.submitted_at })),

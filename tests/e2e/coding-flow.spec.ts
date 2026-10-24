@@ -115,7 +115,7 @@ test("admin publishes a pasted problem → student gets it live → runs, submit
 
   // ---- publish → student sees it WITHOUT reloading (realtime)
   await admin.getByRole("button", { name: "Publish", exact: true }).first().click();
-  await expect(admin.getByText(/Published — the student is notified/)).toBeVisible();
+  await expect(admin.getByText(/Published — every student is notified/)).toBeVisible();
   await expect(student.getByRole("link", { name: TITLE })).toBeVisible({ timeout: 30_000 });
   await expect(student.getByText(`New problem: ${TITLE}`)).toBeVisible(); // toast from the realtime push
 
