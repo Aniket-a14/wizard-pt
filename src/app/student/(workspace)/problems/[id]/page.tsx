@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireStudent } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { isExternalRunnerMode } from "@/lib/runner/mode";
-import { isLang, type ExtraLang, type Lang, type VariantsPublic } from "@/lib/coding/languages";
+import { isLang, LANGUAGES, type ExtraLang, type Lang, type VariantsPublic } from "@/lib/coding/languages";
 import { ProblemWorkspace, type WorkspaceProblem, type SubmissionSummary } from "./workspace";
 
 export const metadata = { title: "Problem" };
@@ -31,7 +31,7 @@ export default async function ProblemPage({ params, searchParams }: PageProps<"/
   const askedLang = typeof sp.lang === "string" ? sp.lang : cookieLang;
   const cfgForLangs = await supabase.from("coding_configs").select("variants").eq("question_version_id", current.id).single();
   const variants = ((cfgForLangs.data?.variants ?? {}) as VariantsPublic);
-  const languages: Lang[] = ["java", ...(Object.keys(variants) as ExtraLang[])];
+  const languages: Lang[] = LANGUAGES.filter((l) => l === "java" || l in variants); // Java, C++, C — a stable order
   const language: Lang = isLang(askedLang) && languages.includes(askedLang) ? askedLang : "java";
 
   const [v, cfg, tests, draft, subs, reviews] = await Promise.all([
