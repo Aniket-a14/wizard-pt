@@ -23,13 +23,13 @@ export function QuizRunner({ session }: { session: AttemptSession }) {
   const [remaining, setRemaining] = useState<number | null>(null);
   const [offset] = useState(() => Date.parse(session.serverNow) - Date.now());
   const dirty = useRef(new Map<string, Ans>());
-  const flushing = useRef(false);
+  const flushing = useRef<Promise<boolean> | null>(null);
+  const answersRef = useRef(session.answers);
   const submittedRef = useRef(false);
 
-  const flush = useCallback(async () => {
-    if (flushing.current) return;
-    flushing.current = true;
-    try {
+  const flush = useCallback((): Promise<boolean> => {
+    if (flushing.current) return flushing.current;
+    const save = async () => {
       while (dirty.current.size > 0) {
         const [vid, a] = dirty.current.entries().next().value as [string, Ans];
         setSync("saving");
@@ -38,20 +38,21 @@ export function QuizRunner({ session }: { session: AttemptSession }) {
           try {
             const r = await saveQuizAnswer({ attemptId: session.attemptId, versionId: vid, selected: a.selected, marked: a.marked });
             if (r.ok) ok = true;
-            else if (/Time is up|already been submitted/i.test(r.error)) { dirty.current.clear(); router.refresh(); return; }
+            else if (/Time is up|already been submitted/i.test(r.error)) { dirty.current.clear(); router.refresh(); return false; }
             else throw new Error(r.error);
           } catch {
             setSync("offline");
             await new Promise((res) => setTimeout(res, Math.min(8000, 800 * 2 ** attempt)));
           }
         }
-        if (!ok) return; // still offline; the next change (or online event) retries
+        if (!ok) return false; // still offline; the next change (or online event) retries
         if (dirty.current.get(vid) === a) dirty.current.delete(vid);
       }
       setSync("saved");
-    } finally {
-      flushing.current = false;
-    }
+      return true;
+    };
+    flushing.current = save().finally(() => { flushing.current = null; });
+    return flushing.current;
   }, [session.attemptId, router]);
 
   useEffect(() => {
@@ -63,11 +64,11 @@ export function QuizRunner({ session }: { session: AttemptSession }) {
   }, [flush]);
 
   function update(vid: string, patch: Partial<Ans>) {
-    setAnswers((cur) => {
-      const next: Ans = { ...(cur[vid] ?? { selected: [], marked: false }), ...patch };
-      dirty.current.set(vid, next);
-      return { ...cur, [vid]: next };
-    });
+    if (submittedRef.current) return;
+    const next: Ans = { ...(answersRef.current[vid] ?? { selected: [], marked: false }), ...patch };
+    answersRef.current = { ...answersRef.current, [vid]: next };
+    dirty.current.set(vid, next);
+    setAnswers(answersRef.current);
     void Promise.resolve().then(flush);
   }
 
@@ -75,15 +76,21 @@ export function QuizRunner({ session }: { session: AttemptSession }) {
     if (submittedRef.current) return;
     submittedRef.current = true;
     setSubmitting(true);
-    await flush();
-    const r = await submitQuizAttempt(session.attemptId);
-    if (!r.ok) {
+    try {
+      if (!(await flush())) {
+        toast.error("Your latest answers are not saved yet. Check your connection and try submitting again.");
+        return;
+      }
+      const r = await submitQuizAttempt(session.attemptId);
+      if (!r.ok) return void toast.error(r.error);
+      router.replace(`/student/quizzes/${session.assessmentId}?attempt=${session.attemptId}`);
+      router.refresh();
+    } catch {
+      toast.error("Could not submit. Your saved answers are kept — please try again.");
+    } finally {
       submittedRef.current = false;
       setSubmitting(false);
-      return void toast.error(r.error);
     }
-    router.replace(`/student/quizzes/${session.assessmentId}?attempt=${session.attemptId}`);
-    router.refresh();
   }, [flush, router, session.assessmentId, session.attemptId]);
 
   // Countdown (uses server time offset so a wrong device clock can't extend the quiz).
@@ -149,7 +156,7 @@ export function QuizRunner({ session }: { session: AttemptSession }) {
           {q.code_snippet && <pre className="code-block">{q.code_snippet}</pre>}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {q.imageUrl && <img src={q.imageUrl} alt="Question illustration" className="max-h-72 rounded-md border border-border" />}
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2" disabled={submitting}>
             <legend className="sr-only">Answer options</legend>
             {q.options.map((o, i) => {
               const checked = cur.selected.includes(o.id);

@@ -1,4 +1,4 @@
-import { jsonEqual, sortArrays, tryParseJson, type JVal } from "./json";
+import { jsonEqual, unorderedJsonEqual, tryParseJson, type JVal } from "./json";
 
 export type CompareMode = "exact" | "trim" | "tokens" | "float" | "json" | "unordered" | "unordered_deep";
 export const COMPARE_MODES: CompareMode[] = ["exact", "trim", "tokens", "float", "json", "unordered", "unordered_deep"];
@@ -57,15 +57,14 @@ export function compareOutput(actual: string, expected: string, opts: CompareOpt
     case "json":
     case "unordered":
     case "unordered_deep": {
-      let a = toValue(actual);
-      let b = toValue(expected);
-      if (opts.mode !== "json") {
-        const deep = opts.mode === "unordered_deep";
-        a = sortArrays(a, deep);
-        b = sortArrays(b, deep);
-      }
-      return jsonEqual(a, b, opts.floatTolerance ?? 1e-6) ? { ok: true } : { ok: false, reason: "Output differs from the expected output" };
+      const a = toValue(actual);
+      const b = toValue(expected);
+      const tolerance = opts.floatTolerance ?? 1e-6;
+      const ok = opts.mode === "json" ? jsonEqual(a, b, tolerance)
+        : unorderedJsonEqual(a, b, tolerance, opts.mode === "unordered_deep");
+      return ok ? { ok: true } : { ok: false, reason: "Output differs from the expected output" };
     }
+
     case "float": {
       const tol = opts.floatTolerance ?? 1e-6;
       const a = actual.trim().split(/\s+/).filter(Boolean);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { commitImport, parsePastedText, uploadPdfs, type ImportPreview } from "@/lib/actions/imports";
 import type { ParsedCoding, ParsedMcq, ParsedQuestion } from "@/lib/import/text-parser";
+import { requestIdentity, type RequestIdentity } from "@/lib/idempotency";
 import { cn } from "@/lib/utils";
 
 interface Item {
@@ -62,10 +63,13 @@ export function ImportWizard({ initialMode = "text" }: { initialMode?: "text" | 
     });
   }
 
+  const commitKey = useRef<RequestIdentity | null>(null);
   const selected = items.filter((i) => i.selected);
   function onCommit() {
     start(async () => {
-      const r = await commitImport(selected.map((i) => ({ importId: i.importId, question: i.q })));
+      const payload = selected.map((i) => ({ importId: i.importId, question: i.q }));
+      commitKey.current = requestIdentity(commitKey.current, JSON.stringify(payload));
+      const r = await commitImport(payload, commitKey.current.key);
       if (!r.ok) return void toast.error(r.error);
       toast.success(`${r.created.length} draft question${r.created.length === 1 ? "" : "s"} created`);
       if (r.created.length === 1) router.push(`/admin/questions/${r.created[0].questionId}`);

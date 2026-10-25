@@ -425,11 +425,11 @@ function parseCoding(block: Block): ParsedCoding {
 
 // ------------------------------------------------------------------ entry point
 
-/** Remove standalone page numbers that PDF extraction leaves between pages. */
+/** Remove explicit page labels. Bare numbers may be test data and must be preserved. */
 export function stripPageNoise(text: string): string {
   return text
     .split("\n")
-    .filter((l) => !/^\s*(?:page\s+)?\d{1,3}(?:\s*(?:of|\/)\s*\d{1,3})?\s*$/i.test(l))
+    .filter((l) => !/^\s*(?:page\s+\d+(?:\s*(?:of|\/)\s*\d+)?|\d+\s*(?:of|\/)\s*\d+)\s*$/i.test(l))
     .join("\n");
 }
 

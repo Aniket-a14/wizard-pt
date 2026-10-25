@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { gradeMcq, seededShuffle, totalise } from "@/lib/mcq/grade";
 import { parseQuizSettings, type QuizSettings } from "@/lib/mcq/settings";
+import type { Json } from "@/lib/supabase/database.types";
 import { canSeeAnswers, canSeeScore } from "@/lib/mcq/visibility";
 
 /*
@@ -39,7 +40,8 @@ export interface AttemptSession {
 
 async function ownedAttempt(attemptId: string, studentId: string) {
   const db = createAdminClient();
-  const { data } = await db.from("assessment_attempts").select("*").eq("id", attemptId).eq("student_id", studentId).maybeSingle();
+  const { data, error } = await db.from("assessment_attempts").select("*").eq("id", attemptId).eq("student_id", studentId).maybeSingle();
+  if (error) throw error;
   if (!data) throw new QuizError("Attempt not found.");
   return data;
 }
@@ -140,83 +142,61 @@ export async function loadAttemptSession(attemptId: string, studentId: string): 
 
 export async function saveAnswer(args: { attemptId: string; studentId: string; versionId: string; selected: string[]; marked: boolean }): Promise<void> {
   const db = createAdminClient();
-  const attempt = await ownedAttempt(args.attemptId, args.studentId);
-  if (attempt.status !== "in_progress") throw new QuizError("This attempt has already been submitted.");
-  if (attempt.deadline_at && Date.now() > new Date(attempt.deadline_at).getTime() + GRACE_MS) throw new QuizError("Time is up.");
-  if (!attempt.question_order.includes(args.versionId)) throw new QuizError("That question is not part of this attempt.");
-
-  const q = await db.from("question_versions").select("mcq_multi").eq("id", args.versionId).single();
-  const valid = await db.from("mcq_options").select("id").eq("question_version_id", args.versionId).in("id", args.selected.length ? args.selected : ["00000000-0000-0000-0000-000000000000"]);
-  const validIds = new Set((valid.data ?? []).map((o) => o.id));
-  const selected = [...new Set(args.selected)].filter((id) => validIds.has(id));
-  if (selected.length !== new Set(args.selected).size) throw new QuizError("Invalid option selected.");
-  if (!q.data?.mcq_multi && selected.length > 1) throw new QuizError("Only one option can be selected.");
-
-  const { error } = await db.from("attempt_answers").upsert(
-    { attempt_id: args.attemptId, question_version_id: args.versionId, selected_option_ids: selected, marked_for_review: args.marked, updated_at: new Date().toISOString() },
-    { onConflict: "attempt_id,question_version_id" },
-  );
+  const { error } = await db.rpc("save_quiz_answer", {
+    p_attempt_id: args.attemptId, p_student_id: args.studentId, p_version_id: args.versionId,
+    p_selected: args.selected, p_marked: args.marked,
+  });
+  if (error?.code === "P0001") throw new QuizError(error.message);
   if (error) throw error;
 }
 
 /** Grade and lock an attempt. Safe to call repeatedly/concurrently: only the first call changes anything. */
 export async function finalizeAttempt(attemptId: string, studentId: string, auto = false): Promise<void> {
   const db = createAdminClient();
-  const attempt = await ownedAttempt(attemptId, studentId);
-  if (attempt.status === "submitted") return;
-
-  const [assessment, aqs, answers] = await Promise.all([
-    db.from("assessments").select("title, settings").eq("id", attempt.assessment_id).single(),
-    db.from("assessment_questions").select("question_version_id, marks").eq("assessment_id", attempt.assessment_id),
-    db.from("attempt_answers").select("question_version_id, selected_option_ids").eq("attempt_id", attemptId),
-  ]);
-  const settings = parseQuizSettings(assessment.data?.settings);
-  const ids = (aqs.data ?? []).map((q) => q.question_version_id);
-  const [keys, versions] = await Promise.all([
-    db.from("mcq_correct_options").select("option_id, question_version_id").in("question_version_id", ids),
-    db.from("question_versions").select("id, mcq_multi").in("id", ids),
-  ]);
-  const multiBy = new Map((versions.data ?? []).map((v) => [v.id, v.mcq_multi]));
-  const ansBy = new Map((answers.data ?? []).map((a) => [a.question_version_id, a.selected_option_ids]));
-
-  const graded = (aqs.data ?? []).map((q) => {
-    const marks = Number(q.marks);
-    const grade = gradeMcq(
-      { selected: ansBy.get(q.question_version_id) ?? [], correct: (keys.data ?? []).filter((k) => k.question_version_id === q.question_version_id).map((k) => k.option_id), marks, multi: multiBy.get(q.question_version_id) ?? false },
-      settings,
-    );
-    return { versionId: q.question_version_id, marks, grade };
-  });
-  const totals = totalise(graded);
-
-  // Atomic claim: only the request that flips in_progress → submitted does the side effects.
-  const claim = await db
-    .from("assessment_attempts")
-    .update({ status: "submitted", submitted_at: new Date().toISOString(), auto_submitted: auto, score: totals.score, max_score: totals.maxScore })
-    .eq("id", attemptId)
-    .eq("status", "in_progress")
-    .select("id");
-  if (claim.error) throw claim.error;
-  if (!claim.data || claim.data.length === 0) return;
-
-  await db.from("attempt_grades").upsert(
-    graded.map((g) => ({ attempt_id: attemptId, question_version_id: g.versionId, is_correct: g.grade.isCorrect, awarded_marks: g.grade.awarded, max_marks: g.marks })),
-    { onConflict: "attempt_id,question_version_id" },
-  );
-
-  const admins = await db.from("profiles").select("id").eq("role", "admin");
-  if (admins.data?.length) {
-    await db.from("notifications").insert(
-      admins.data.map((a) => ({
-        recipient_id: a.id,
-        type: "quiz_submitted",
-        title: `Quiz submitted: ${assessment.data?.title ?? "Quiz"}`,
-        body: auto ? "Submitted automatically when the timer ran out." : `Score ${totals.score}/${totals.maxScore}`,
-        link: `/admin/submissions/quiz/${attemptId}`,
-        reference_id: attemptId,
-      })),
-    );
+  for (let retry = 0; retry < 8; retry++) {
+    const attempt = await ownedAttempt(attemptId, studentId);
+    if (attempt.status === "submitted") return;
+    const [assessment, aqs, answers] = await Promise.all([
+      db.from("assessments").select("settings").eq("id", attempt.assessment_id).single(),
+      db.from("assessment_questions").select("question_version_id, marks").eq("assessment_id", attempt.assessment_id),
+      db.from("attempt_answers").select("question_version_id, selected_option_ids").eq("attempt_id", attemptId),
+    ]);
+    if (assessment.error) throw assessment.error;
+    if (aqs.error) throw aqs.error;
+    if (answers.error) throw answers.error;
+    if (!aqs.data.length) throw new QuizError("This quiz has no questions to grade.");
+    const settings = parseQuizSettings(assessment.data.settings);
+    const ids = aqs.data.map((q) => q.question_version_id);
+    const [keys, versions] = await Promise.all([
+      db.from("mcq_correct_options").select("option_id, question_version_id").in("question_version_id", ids),
+      db.from("question_versions").select("id, mcq_multi").in("id", ids),
+    ]);
+    if (keys.error) throw keys.error;
+    if (versions.error) throw versions.error;
+    if (versions.data.length !== ids.length || ids.some((id) => !keys.data.some((k) => k.question_version_id === id))) {
+      throw new QuizError("Quiz grading data is incomplete.");
+    }
+    const multiBy = new Map(versions.data.map((v) => [v.id, v.mcq_multi]));
+    const ansBy = new Map(answers.data.map((a) => [a.question_version_id, a.selected_option_ids]));
+    const graded = aqs.data.map((q) => {
+      const marks = Number(q.marks);
+      const grade = gradeMcq({ selected: ansBy.get(q.question_version_id) ?? [],
+        correct: keys.data.filter((k) => k.question_version_id === q.question_version_id).map((k) => k.option_id),
+        marks, multi: multiBy.get(q.question_version_id)! }, settings);
+      return { versionId: q.question_version_id, marks, grade };
+    });
+    const totals = totalise(graded);
+    const committed = await db.rpc("commit_quiz_attempt", {
+      p_attempt_id: attemptId, p_student_id: studentId, p_answers: Object.fromEntries(ansBy) as Json,
+      p_grades: graded.map((g) => ({ question_version_id: g.versionId, is_correct: g.grade.isCorrect,
+        awarded_marks: g.grade.awarded, max_marks: g.marks })) as Json,
+      p_score: totals.score, p_max_score: totals.maxScore, p_auto: auto,
+    });
+    if (committed.error?.code === "P0001") throw new QuizError(committed.error.message);
+    if (committed.error) throw committed.error;
+    if (committed.data) return;
   }
+  throw new QuizError("Answers changed while submitting. Please submit again.");
 }
 
 export interface AttemptResult {

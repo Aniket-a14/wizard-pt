@@ -86,7 +86,7 @@ export async function publishCodingQuestion(questionId: string): Promise<ActionR
       supabase.from("coding_configs").select("execution_mode, function_signature, grading_mode").eq("question_version_id", vid).maybeSingle(),
       supabase.from("test_cases").select("input, visibility").eq("question_version_id", vid),
     ]);
-    if (cfg.data?.execution_mode === "function" && cfg.data.grading_mode === "auto") {
+    if (cfg.data?.execution_mode === "function" && cfg.data.grading_mode === "auto" && cfg.data.function_signature?.trim()) {
       try {
         const sig = parseSignature(cfg.data.function_signature ?? "");
         for (const [i, t] of (tests.data ?? []).entries()) {

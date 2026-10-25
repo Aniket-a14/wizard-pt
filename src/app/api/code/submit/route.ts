@@ -17,7 +17,6 @@ const body = z.object({
   language: z.enum(LANGUAGES).default("java"),
 });
 
-const SUBMITS_PER_10_MIN = 12;
 
 export async function POST(req: NextRequest) {
   const user = await studentOr401();
@@ -29,14 +28,6 @@ export async function POST(req: NextRequest) {
 
   if (!(await studentCanSeeVersion(versionId))) return jsonError("Problem not found.", 404);
   const db = createAdminClient();
-
-  // Retry-safe: the same key always maps to the same immutable submission (double clicks, flaky networks).
-  const existing = await db.from("code_submissions").select("id, status").eq("student_id", user.id).eq("idempotency_key", idempotencyKey).maybeSingle();
-  if (existing.data) return NextResponse.json({ submissionId: existing.data.id, status: existing.data.status, duplicate: true });
-
-  const since = new Date(Date.now() - 10 * 60_000).toISOString();
-  const recent = await db.from("code_submissions").select("id", { count: "exact", head: true }).eq("student_id", user.id).gte("submitted_at", since);
-  if ((recent.count ?? 0) >= SUBMITS_PER_10_MIN) return jsonError("You've submitted a lot in a short time. Please wait a few minutes.", 429);
 
   let ctx;
   try {
@@ -53,24 +44,24 @@ export async function POST(req: NextRequest) {
     throw e;
   }
 
-  const ins = await db
-    .from("code_submissions")
-    .insert({ student_id: user.id, question_version_id: versionId, source_code: code, idempotency_key: idempotencyKey, language, status: "queued", max_marks: ctx.marks })
-    .select("id, status")
-    .single();
+  const ins = await db.rpc("enqueue_code_submission", {
+    p_student_id: user.id, p_version_id: versionId, p_code: code, p_key: idempotencyKey,
+    p_language: language, p_max_marks: ctx.marks,
+  });
   if (ins.error) {
-    // Lost a race with a parallel identical request.
-    const again = await db.from("code_submissions").select("id, status").eq("student_id", user.id).eq("idempotency_key", idempotencyKey).maybeSingle();
-    if (again.data) return NextResponse.json({ submissionId: again.data.id, status: again.data.status, duplicate: true });
+    if (ins.error.message === "Submission rate limit exceeded.") return jsonError("You've submitted a lot in a short time. Please wait a few minutes.", 429);
+    if (ins.error.message === "Idempotency key belongs to a different submission.") return jsonError(ins.error.message, 409);
     console.error("[submit]", ins.error);
     return jsonError("Could not save your submission. Please try again.", 500);
   }
+  const submission = ins.data as { id: string; status: string; duplicate: boolean };
+  if (submission.duplicate) return NextResponse.json({ submissionId: submission.id, status: submission.status, duplicate: true, external: isExternalRunnerMode() });
 
   if (isExternalRunnerMode()) {
     // Nothing executes on this site: the submission waits (queued) for the admin's offline grader or manual review.
-    after(() => notifyAdmins(ins.data.id, ctx.title, "Awaiting evaluation"));
-    return NextResponse.json({ submissionId: ins.data.id, status: "queued", external: true }, { status: 202 });
+    after(() => notifyAdmins(submission.id, ctx.title, "Awaiting evaluation"));
+    return NextResponse.json({ submissionId: submission.id, status: "queued", external: true }, { status: 202 });
   }
-  after(() => processSubmission(ins.data.id));
-  return NextResponse.json({ submissionId: ins.data.id, status: "queued" }, { status: 202 });
+  after(() => processSubmission(submission.id));
+  return NextResponse.json({ submissionId: submission.id, status: "queued" }, { status: 202 });
 }

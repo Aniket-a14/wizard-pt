@@ -5,7 +5,7 @@ import { z } from "zod";
 import { assertAdmin } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Json } from "@/lib/supabase/database.types";
 import { toActionError, zodFieldErrors, type ActionResult } from "./common";
 
 const schema = z.object({
@@ -25,7 +25,7 @@ export type ReviewInput = z.input<typeof schema>;
  * Save the admin's manual review. Automated verdicts live on the submission itself; this is the
  * separate human decision. Students see it only after `publish`, which also notifies them.
  */
-export async function saveReview(input: ReviewInput): Promise<ActionResult<{ publishedAt: string | null }>> {
+export async function saveReview(input: ReviewInput): Promise<ActionResult<{ publishedAt: string | null; hasDraft: boolean }>> {
   try {
     const admin = await assertAdmin();
     const parsed = schema.safeParse(input);
@@ -34,24 +34,14 @@ export async function saveReview(input: ReviewInput): Promise<ActionResult<{ pub
     const supabase = await createClient();
     const col = d.target === "code" ? "code_submission_id" : "attempt_id";
 
-    const existing = await supabase.from("reviews").select("id, published_at").eq(col, d.id).maybeSingle();
-    const now = new Date().toISOString();
-    const publishedAt = d.publish ? now : (existing.data?.published_at ?? null);
-    const base = {
-      reviewer_id: admin.id,
-      status: d.status,
-      marks: d.marks,
-      max_marks: d.maxMarks,
-      comments: d.comments || null,
-      suggestions: d.suggestions || null,
-      explanation: d.explanation || null,
-      published_at: publishedAt,
+    const payload = {
+      reviewer_id: admin.id, status: d.status, marks: d.marks, max_marks: d.maxMarks,
+      comments: d.comments || null, suggestions: d.suggestions || null, explanation: d.explanation || null,
+      [col]: d.id,
     };
-    const row = (d.target === "code" ? { ...base, code_submission_id: d.id } : { ...base, attempt_id: d.id }) as Database["public"]["Tables"]["reviews"]["Insert"];
-    const { error } = existing.data
-      ? await supabase.from("reviews").update(row).eq("id", existing.data.id)
-      : await supabase.from("reviews").insert(row);
-    if (error) throw error;
+    const saved = await supabase.rpc("save_review", { p_payload: payload as Json, p_publish: d.publish });
+    if (saved.error) throw saved.error;
+    const result = saved.data as { publishedAt: string | null; hasDraft: boolean };
 
     if (d.publish) {
       // Find the student and tell them (service role: students cannot be written to by the admin client's RLS).
@@ -81,7 +71,7 @@ export async function saveReview(input: ReviewInput): Promise<ActionResult<{ pub
       }
     }
     revalidatePath("/admin/submissions");
-    return { ok: true, publishedAt };
+    return { ok: true, ...result };
   } catch (e) {
     return toActionError(e);
   }

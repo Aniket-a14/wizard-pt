@@ -17,6 +17,7 @@ export interface ReviewInitial {
   suggestions: string;
   explanation: string;
   publishedAt: string | null;
+  hasDraft?: boolean;
 }
 
 export function ReviewForm({ target, id, initial, defaultMax, suggestedMarks }: { target: "code" | "quiz"; id: string; initial: ReviewInitial | null; defaultMax: number | null; suggestedMarks: number | null }) {
@@ -29,14 +30,14 @@ export function ReviewForm({ target, id, initial, defaultMax, suggestedMarks }: 
     start(async () => {
       const r = await saveReview({ target, id, status: f.status, marks: f.marks, maxMarks: f.maxMarks, comments: f.comments, suggestions: f.suggestions, explanation: f.explanation, publish });
       if (!r.ok) return void toast.error(r.error);
-      setF((c) => ({ ...c, publishedAt: r.publishedAt }));
+      setF((c) => ({ ...c, publishedAt: r.publishedAt, hasDraft: r.hasDraft }));
       toast.success(publish ? "Feedback published — the student who submitted it is notified" : "Draft saved (not visible to the student who submitted it)");
       router.refresh();
     });
   }
   return (
     <Panel>
-      <PanelHeader title="Manual review" actions={f.publishedAt ? <span className="text-xs text-success">Published {formatDateTime(f.publishedAt)}</span> : initial ? <span className="text-xs text-warning">Draft — not visible to student</span> : undefined} />
+      <PanelHeader title="Manual review" actions={f.hasDraft ? <span className="text-xs text-warning">Unpublished changes</span> : f.publishedAt ? <span className="text-xs text-success">Published {formatDateTime(f.publishedAt)}</span> : initial ? <span className="text-xs text-warning">Draft — not visible to student</span> : undefined} />
       <div className="space-y-3 p-4">
         <p className="text-xs text-muted">This is your decision, separate from the automatic test result.</p>
         <div className="grid grid-cols-3 gap-3">

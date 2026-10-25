@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processSubmission } from "./submission";
+import { processSubmission, STALE_MS } from "./submission";
 
 export interface GradedRow {
   id: string;
@@ -17,12 +17,13 @@ export interface GradedRow {
  */
 export async function gradePending(limit = 50): Promise<GradedRow[]> {
   const db = createAdminClient();
-  const { data } = await db
+  const { data, error } = await db
     .from("code_submissions")
     .select("id")
-    .eq("status", "queued")
+    .or(`status.eq.queued,and(status.eq.running,claimed_at.lt.${new Date(Date.now() - STALE_MS).toISOString()})`)
     .order("submitted_at", { ascending: true })
     .limit(limit);
+  if (error) throw error;
   const out: GradedRow[] = [];
   for (const { id } of data ?? []) {
     await processSubmission(id, { notifyStudent: true, notifyAdmin: false });

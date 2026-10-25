@@ -107,7 +107,7 @@ export function canon(v: JVal): string {
   if (v === null) return "null";
   if (typeof v === "boolean") return String(v);
   if (typeof v === "string") return JSON.stringify(v);
-  if (isNum(v)) return v.n;
+  if (isNum(v)) return /[.eE]/.test(v.n) ? v.n : BigInt(v.n).toString();
   if (isArr(v)) return `[${v.map(canon).join(",")}]`;
   return `{${[...v.o].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, x]) => `${JSON.stringify(k)}:${canon(x)}`).join(",")}}`;
 }
@@ -141,4 +141,57 @@ export function jsonEqual(a: JVal, b: JVal, tol = 0): boolean {
     return a.o.every(([k, x]) => m.has(k) && jsonEqual(x, m.get(k)!, tol));
   }
   return a === b;
+}
+
+/** Unordered equality uses value equality, including numeric notation and tolerance. */
+export function unorderedJsonEqual(a: JVal, b: JVal, tol = 0, deep = false, top = true): boolean {
+  const equal = (x: JVal, y: JVal) => unorderedJsonEqual(x, y, tol, deep, false);
+  if (isArr(a) && isArr(b)) {
+    if (a.length !== b.length) return false;
+    if (!deep && !top) return a.every((x, i) => equal(x, b[i]));
+    const scalar = (x: JVal) => !isArr(x) && !isObj(x);
+    if (a.every(scalar) && b.every(scalar)) {
+      // Numeric tolerance intervals are ordered, so sorted scalar lists can be matched in O(n log n).
+      const compare = (x: JVal, y: JVal) => {
+        if (isNum(x) && isNum(y)) {
+          if (!FLOATY.test(x.n) && !FLOATY.test(y.n)) {
+            const l = BigInt(x.n), r = BigInt(y.n);
+            return l < r ? -1 : l > r ? 1 : 0;
+          }
+          const l = Number(x.n), r = Number(y.n);
+          return l < r ? -1 : l > r ? 1 : 0;
+        }
+        const kind = (v: JVal) => isNum(v) ? "number" : v === null ? "null" : typeof v;
+        const kx = kind(x), ky = kind(y);
+        return kx < ky ? -1 : kx > ky ? 1 : byCanon(x, y);
+      };
+      const left = [...a].sort(compare), right = [...b].sort(compare);
+      return left.every((x, i) => equal(x, right[i]));
+    }
+    const hasDecimal = (v: JVal): boolean => isNum(v) ? FLOATY.test(v.n)
+      : isArr(v) ? v.some(hasDecimal) : isObj(v) ? v.o.some(([, value]) => hasDecimal(value)) : false;
+    if (!hasDecimal(a) && !hasDecimal(b)) {
+      // Exact compound values retain the normal O(n log n) path, even for large outputs.
+      return jsonEqual(sortArrays(a, deep), sortArrays(b, deep), tol);
+    }
+    // Structured values can have overlapping tolerance matches. Find a complete matching rather
+    // than greedily consuming the first equal item (which can leave another item unmatched).
+    const candidates = a.map((x) => b.flatMap((y, j) => equal(x, y) ? [j] : []));
+    const matched = new Array<number>(b.length).fill(-1);
+    const visit = (i: number, seen: Set<number>): boolean => {
+      for (const j of candidates[i]) {
+        if (seen.has(j)) continue;
+        seen.add(j);
+        if (matched[j] === -1 || visit(matched[j], seen)) { matched[j] = i; return true; }
+      }
+      return false;
+    };
+    return a.every((_, i) => visit(i, new Set()));
+  }
+  if (isObj(a) && isObj(b)) {
+    if (a.o.length !== b.o.length) return false;
+    const other = new Map(b.o);
+    return a.o.every(([key, value]) => other.has(key) && equal(value, other.get(key)!));
+  }
+  return jsonEqual(a, b, tol);
 }

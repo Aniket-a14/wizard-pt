@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { assertAdmin } from "@/lib/auth/session";
@@ -116,14 +117,14 @@ export interface CommitItem {
 }
 
 /** Create DRAFT questions from the reviewed preview. Imports are never published automatically. */
-export async function commitImport(items: CommitItem[]): Promise<ActionResult<{ created: { questionId: string; type: "coding" | "mcq"; title: string }[] }>> {
+export async function commitImport(items: CommitItem[], batchId: string): Promise<ActionResult<{ created: { questionId: string; type: "coding" | "mcq"; title: string }[] }>> {
   try {
     await assertAdmin();
     if (!Array.isArray(items) || items.length === 0) return { ok: false, error: "Select at least one question to import." };
     if (items.length > 100) return { ok: false, error: "Import at most 100 questions at a time." };
     const supabase = await createClient();
-    const created: { questionId: string; type: "coding" | "mcq"; title: string }[] = [];
-    const importIds = new Set<string>();
+    if (!z.string().uuid().safeParse(batchId).success) return { ok: false, error: "Invalid import batch." };
+    const preparedItems: { type: "coding" | "mcq"; payload: Json }[] = [];
 
     for (const item of items) {
       const q = item.question;
@@ -146,15 +147,11 @@ export async function commitImport(items: CommitItem[]): Promise<ActionResult<{ 
         });
         if (!parsed.success) return { ok: false, error: `"${q.title || "An MCQ"}": ${parsed.error.issues[0].message}` };
         const d = parsed.data;
-        const { data, error } = await supabase.rpc("save_mcq_draft", {
-          p_payload: {
-            title: d.title, difficulty: d.difficulty, topic: d.topic, tags: d.tags, company: d.company, statement_md: d.statement_md,
-            code_snippet: "", image_path: null, marks: d.marks, mcq_multi: d.mcq_multi, review_flags: d.review_flags,
-            explanation_md: d.explanation_md, import_id: d.import_id ?? null, options: d.options,
-          } as Json,
-        });
-        if (error) throw error;
-        created.push({ questionId: (data as unknown as { question_id: string }).question_id, type: "mcq", title: d.title });
+        preparedItems.push({ type: "mcq", payload: {
+          title: d.title, difficulty: d.difficulty, topic: d.topic, tags: d.tags, company: d.company, statement_md: d.statement_md,
+          code_snippet: "", image_path: null, marks: d.marks, mcq_multi: d.mcq_multi, review_flags: d.review_flags,
+          explanation_md: d.explanation_md, import_id: d.import_id ?? null, options: d.options,
+        } as Json });
       } else {
         // Function mode when a valid signature was found, otherwise full-program mode (flagged).
         let mode: "function" | "program" = "program";
@@ -193,15 +190,12 @@ export async function commitImport(items: CommitItem[]): Promise<ActionResult<{ 
         if (!parsed.success) return { ok: false, error: `"${q.title || "A problem"}": ${parsed.error.issues[0].message}` };
         const prepared = prepareCoding(parsed.data);
         if (!prepared.ok) return { ok: false, error: `"${q.title}": ${prepared.error}` };
-        const { data, error } = await supabase.rpc("save_coding_draft", { p_payload: prepared.payload as Json });
-        if (error) throw error;
-        created.push({ questionId: (data as unknown as { question_id: string }).question_id, type: "coding", title: parsed.data.title });
+        preparedItems.push({ type: "coding", payload: prepared.payload as Json });
       }
-      if (importId) importIds.add(importId);
     }
-    if (importIds.size > 0) {
-      await supabase.from("imports").update({ status: "imported" }).in("id", [...importIds]).eq("status", "parsed");
-    }
+    const { data, error } = await supabase.rpc("commit_import_batch", { p_batch_id: batchId, p_items: preparedItems as unknown as Json });
+    if (error) throw error;
+    const created = data as unknown as { questionId: string; type: "coding" | "mcq"; title: string }[];
     revalidatePath("/admin/questions");
     return { ok: true, created };
   } catch (e) {

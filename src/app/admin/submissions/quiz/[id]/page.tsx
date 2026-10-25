@@ -24,7 +24,7 @@ export default async function QuizSubmission({ params }: PageProps<"/admin/submi
     supabase.from("mcq_correct_options").select("option_id").in("question_version_id", ids),
     supabase.from("attempt_answers").select("question_version_id, selected_option_ids, marked_for_review").eq("attempt_id", id),
     supabase.from("attempt_grades").select("*").eq("attempt_id", id),
-    supabase.from("reviews").select("*").eq("attempt_id", id).maybeSingle(),
+    supabase.from("reviews").select("*, draft:review_drafts(content)").eq("attempt_id", id).maybeSingle(),
   ]);
   const correct = new Set((keys.data ?? []).map((k) => k.option_id));
   const aBy = new Map((answers.data ?? []).map((a) => [a.question_version_id, a]));
@@ -32,7 +32,7 @@ export default async function QuizSubmission({ params }: PageProps<"/admin/submi
   const total = grades.data?.length ?? 0;
   const right = grades.data?.filter((g) => g.is_correct).length ?? 0;
   const unanswered = ids.filter((v) => (aBy.get(v)?.selected_option_ids.length ?? 0) === 0).length;
-  const r = review.data;
+  const r = review.data ? { ...review.data, ...(review.data.draft?.content as Partial<NonNullable<typeof review.data>> ?? {}) } : null;
 
   return (
     <>
@@ -72,7 +72,7 @@ export default async function QuizSubmission({ params }: PageProps<"/admin/submi
           })}
         </div>
         <div className="space-y-5">
-          <ReviewForm target="quiz" id={id} initial={r ? { status: r.status as "reviewed", marks: r.marks === null ? null : Number(r.marks), maxMarks: r.max_marks === null ? null : Number(r.max_marks), comments: r.comments ?? "", suggestions: r.suggestions ?? "", explanation: r.explanation ?? "", publishedAt: r.published_at } : null} defaultMax={att.max_score === null ? null : Number(att.max_score)} suggestedMarks={att.score === null ? null : Number(att.score)} />
+          <ReviewForm target="quiz" id={id} initial={r ? { status: r.status as "reviewed", marks: r.marks === null ? null : Number(r.marks), maxMarks: r.max_marks === null ? null : Number(r.max_marks), comments: r.comments ?? "", suggestions: r.suggestions ?? "", explanation: r.explanation ?? "", publishedAt: r.published_at, hasDraft: !!review.data?.draft } : null} defaultMax={att.max_score === null ? null : Number(att.max_score)} suggestedMarks={att.score === null ? null : Number(att.score)} />
           <Panel><PanelHeader title="About this score" /><p className="p-4 text-xs text-muted">Marks were calculated automatically from the answer keys and the quiz&apos;s marking rules. Your review is separate and optional.</p></Panel>
         </div>
       </div>

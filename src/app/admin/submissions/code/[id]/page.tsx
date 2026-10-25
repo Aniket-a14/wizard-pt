@@ -26,7 +26,7 @@ export default async function CodeSubmission({ params, searchParams }: PageProps
   const lang = isLang(sub.language) ? sub.language : "java";
   const [priv, review, siblings] = await Promise.all([
     supabase.from("code_submission_private").select("detailed_results").eq("submission_id", id).maybeSingle(),
-    supabase.from("reviews").select("*").eq("code_submission_id", id).maybeSingle(),
+    supabase.from("reviews").select("*, draft:review_drafts(content)").eq("code_submission_id", id).maybeSingle(),
     supabase.from("code_submissions").select("id, verdict, score_pct, submitted_at, source_code, v:question_versions!inner(question_id)").eq("student_id", sub.student_id).eq("v.question_id", sub.v?.question_id ?? "").order("submitted_at", { ascending: false }),
   ]);
   const details = (Array.isArray(priv.data?.detailed_results) ? priv.data!.detailed_results : []) as unknown as Detail[];
@@ -34,7 +34,7 @@ export default async function CodeSubmission({ params, searchParams }: PageProps
   const other = compareId ? siblings.data?.find((x) => x.id === compareId) : null;
   const diff = other ? diffLines(other.source_code, sub.source_code) : null;
   const verdict = sub.verdict as Verdict | null;
-  const r = review.data;
+  const r = review.data ? { ...review.data, ...(review.data.draft?.content as Partial<NonNullable<typeof review.data>> ?? {}) } : null;
 
   return (
     <>
@@ -93,7 +93,7 @@ export default async function CodeSubmission({ params, searchParams }: PageProps
           )}
         </div>
         <div className="space-y-5">
-          <ReviewForm target="code" id={id} initial={r ? { status: r.status as "reviewed", marks: r.marks === null ? null : Number(r.marks), maxMarks: r.max_marks === null ? null : Number(r.max_marks), comments: r.comments ?? "", suggestions: r.suggestions ?? "", explanation: r.explanation ?? "", publishedAt: r.published_at } : null}
+          <ReviewForm target="code" id={id} initial={r ? { status: r.status as "reviewed", marks: r.marks === null ? null : Number(r.marks), maxMarks: r.max_marks === null ? null : Number(r.max_marks), comments: r.comments ?? "", suggestions: r.suggestions ?? "", explanation: r.explanation ?? "", publishedAt: r.published_at, hasDraft: !!review.data?.draft } : null}
             defaultMax={sub.v ? Number(sub.v.marks) : null} suggestedMarks={sub.marks_awarded === null ? null : Number(sub.marks_awarded)} />
           <Panel>
             <PanelHeader title="Attempts on this problem" />

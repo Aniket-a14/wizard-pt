@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadEvalContext, type EvalContext } from "@/lib/coding/context";
 import { LANGUAGES } from "@/lib/coding/languages";
-import { CodeValidationError } from "@/lib/coding/compose";
+import { CodeValidationError, validateStudentCode } from "@/lib/coding/compose";
 import { evaluate, evaluateCustom } from "@/lib/coding/evaluate";
 import { getRunner } from "@/lib/runner";
 import { isExternalRunnerMode } from "@/lib/runner/mode";
@@ -18,7 +18,6 @@ const body = z.object({
   language: z.enum(LANGUAGES).default("java"),
 });
 
-const RUNS_PER_MINUTE = 8;
 
 export async function POST(req: NextRequest) {
   const user = await studentOr401();
@@ -33,9 +32,6 @@ export async function POST(req: NextRequest) {
   if (!(await studentCanSeeVersion(versionId))) return jsonError("Problem not found.", 404);
 
   const db = createAdminClient();
-  const since = new Date(Date.now() - 60_000).toISOString();
-  const recent = await db.from("code_runs").select("id", { count: "exact", head: true }).eq("student_id", user.id).gte("created_at", since);
-  if ((recent.count ?? 0) >= RUNS_PER_MINUTE) return jsonError("You're running code too quickly. Wait a few seconds and try again.", 429);
 
   let ctx: EvalContext | null;
   try {
@@ -46,8 +42,14 @@ export async function POST(req: NextRequest) {
   if (!ctx) return jsonError("Problem not found.", 404);
 
   try {
-    const runner = getRunner();
+    validateStudentCode(code, ctx.config);
     const publicTests = ctx.tests.filter((t) => t.visibility === "public");
+    if (customInput !== undefined && customInput !== "" && !ctx.allowCustomInput) return jsonError("Custom input is not enabled for this problem.", 400);
+    if (!customInput && publicTests.length === 0) return jsonError("This problem has no sample tests to run. Use Submit, or provide custom input.", 400);
+    const reserved = await db.rpc("reserve_code_run", { p_student_id: user.id, p_version_id: versionId, p_code: code });
+    if (reserved.error?.message === "Run rate limit exceeded.") return jsonError("You're running code too quickly. Wait a few seconds and try again.", 429);
+    if (reserved.error) throw reserved.error;
+    const runner = getRunner();
     let custom = null;
     let result = null;
     if (customInput !== undefined && customInput !== "") {
@@ -69,7 +71,8 @@ export async function POST(req: NextRequest) {
         results: out.student.filter((r) => r.visibility === "public"),
       };
     }
-    await db.from("code_runs").insert({ student_id: user.id, question_version_id: versionId, source_code: code, verdict: result?.verdict ?? custom?.status ?? null });
+    const saved = await db.from("code_runs").update({ verdict: result?.verdict ?? custom?.status ?? null }).eq("id", reserved.data);
+    if (saved.error) throw saved.error;
     return NextResponse.json({ mode: custom ? "custom" : "public", result, custom });
   } catch (e) {
     if (e instanceof CodeValidationError) return jsonError(e.message, 400);

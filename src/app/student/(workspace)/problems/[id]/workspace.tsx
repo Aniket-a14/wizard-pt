@@ -10,6 +10,7 @@ import { Badge, DifficultyBadge, VerdictBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/form";
+import { requestIdentity, type RequestIdentity } from "@/lib/idempotency";
 import { saveDraft } from "@/lib/actions/drafts";
 import { LANG_META, type Lang } from "@/lib/coding/languages";
 import { VERDICT_LABEL, type Verdict } from "@/lib/coding/score";
@@ -199,7 +200,7 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
     [busy, customInput, p.versionId, p.language, externalRunner],
   );
 
-  const submitKey = useRef<string | null>(null);
+  const submitKey = useRef<RequestIdentity | null>(null);
   const submit = useCallback(async () => {
     if (busy) return;
     if (!confirm(externalRunner
@@ -210,9 +211,10 @@ export function ProblemWorkspace({ problem: p, initialCode, hasDraft, submission
     setOutcome(null);
     await persist();
     // One idempotency key per click-through so network retries / double clicks can never create duplicates.
-    submitKey.current = submitKey.current ?? crypto.randomUUID();
+    const payload = { versionId: p.versionId, code: codeRef.current, language: p.language };
+    submitKey.current = requestIdentity(submitKey.current, JSON.stringify(payload));
     try {
-      const res = await fetch("/api/code/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: p.versionId, code: codeRef.current, language: p.language, idempotencyKey: submitKey.current }) });
+      const res = await fetch("/api/code/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, idempotencyKey: submitKey.current.key }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         submitKey.current = null;

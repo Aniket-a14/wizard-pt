@@ -221,14 +221,14 @@ isOneToOne: true
                   ]
                 },"code_submissions": {
                   Row: {
-                    "attempts_count": number,"claimed_at": string | null,"compile_output": string | null,"completed_at": string | null,"error_message": string | null,"exec_time_ms": number | null,"id": string,"idempotency_key": string,"language": string,"marks_awarded": number | null,"max_marks": number | null,"memory_kb": number | null,"passed_hidden": number | null,"passed_public": number | null,"question_version_id": string,"results": NonNullable<Json>,"score_pct": number | null,"source_code": string,"status": string,"student_id": string,"submitted_at": string,"total_hidden": number | null,"total_public": number | null,"verdict": string | null
+                    "attempts_count": number,"claim_token": string | null,"claimed_at": string | null,"compile_output": string | null,"completed_at": string | null,"error_message": string | null,"exec_time_ms": number | null,"id": string,"idempotency_key": string,"language": string,"marks_awarded": number | null,"max_marks": number | null,"memory_kb": number | null,"passed_hidden": number | null,"passed_public": number | null,"question_version_id": string,"results": NonNullable<Json>,"score_pct": number | null,"source_code": string,"status": string,"student_id": string,"submitted_at": string,"total_hidden": number | null,"total_public": number | null,"verdict": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts_count"?: number,"claimed_at"?: string | null,"compile_output"?: string | null,"completed_at"?: string | null,"error_message"?: string | null,"exec_time_ms"?: number | null,"id"?: string,"idempotency_key": string,"language"?: string,"marks_awarded"?: number | null,"max_marks"?: number | null,"memory_kb"?: number | null,"passed_hidden"?: number | null,"passed_public"?: number | null,"question_version_id": string,"results"?: NonNullable<Json>,"score_pct"?: number | null,"source_code": string,"status"?: string,"student_id": string,"submitted_at"?: string,"total_hidden"?: number | null,"total_public"?: number | null,"verdict"?: string | null
+                    "attempts_count"?: number,"claim_token"?: string | null,"claimed_at"?: string | null,"compile_output"?: string | null,"completed_at"?: string | null,"error_message"?: string | null,"exec_time_ms"?: number | null,"id"?: string,"idempotency_key": string,"language"?: string,"marks_awarded"?: number | null,"max_marks"?: number | null,"memory_kb"?: number | null,"passed_hidden"?: number | null,"passed_public"?: number | null,"question_version_id": string,"results"?: NonNullable<Json>,"score_pct"?: number | null,"source_code": string,"status"?: string,"student_id": string,"submitted_at"?: string,"total_hidden"?: number | null,"total_public"?: number | null,"verdict"?: string | null
                   }
                   Update: {
-                    "attempts_count"?: number,"claimed_at"?: string | null,"compile_output"?: string | null,"completed_at"?: string | null,"error_message"?: string | null,"exec_time_ms"?: number | null,"id"?: string,"idempotency_key"?: string,"language"?: string,"marks_awarded"?: number | null,"max_marks"?: number | null,"memory_kb"?: number | null,"passed_hidden"?: number | null,"passed_public"?: number | null,"question_version_id"?: string,"results"?: NonNullable<Json>,"score_pct"?: number | null,"source_code"?: string,"status"?: string,"student_id"?: string,"submitted_at"?: string,"total_hidden"?: number | null,"total_public"?: number | null,"verdict"?: string | null
+                    "attempts_count"?: number,"claim_token"?: string | null,"claimed_at"?: string | null,"compile_output"?: string | null,"completed_at"?: string | null,"error_message"?: string | null,"exec_time_ms"?: number | null,"id"?: string,"idempotency_key"?: string,"language"?: string,"marks_awarded"?: number | null,"max_marks"?: number | null,"memory_kb"?: number | null,"passed_hidden"?: number | null,"passed_public"?: number | null,"question_version_id"?: string,"results"?: NonNullable<Json>,"score_pct"?: number | null,"source_code"?: string,"status"?: string,"student_id"?: string,"submitted_at"?: string,"total_hidden"?: number | null,"total_public"?: number | null,"verdict"?: string | null
                   }
                   Relationships: [
                     {
@@ -282,6 +282,26 @@ isOneToOne: true
       columns: ["question_version_id"]
 isOneToOne: true
       referencedRelation: "question_versions"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"import_batches": {
+                  Row: {
+                    "created_at": string,"created_by": string,"id": string,"payload": NonNullable<Json>,"result": NonNullable<Json>
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"created_by": string,"id": string,"payload": NonNullable<Json>,"result": NonNullable<Json>
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string,"id"?: string,"payload"?: NonNullable<Json>,"result"?: NonNullable<Json>
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "import_batches_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
       referencedColumns: ["id"]
     }
                   ]
@@ -463,6 +483,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"review_drafts": {
+                  Row: {
+                    "content": NonNullable<Json>,"review_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "content": NonNullable<Json>,"review_id": string
+                  }
+                  Update: {
+                    "content"?: NonNullable<Json>,"review_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "review_drafts_review_id_fkey"
+      columns: ["review_id"]
+isOneToOne: true
+      referencedRelation: "reviews"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"reviews": {
                   Row: {
                     "attempt_id": string | null,"code_submission_id": string | null,"comments": string | null,"created_at": string,"explanation": string | null,"id": string,"marks": number | null,"max_marks": number | null,"published_at": string | null,"reviewer_id": string,"status": string,"suggestions": string | null,"updated_at": string
@@ -524,6 +564,15 @@ isOneToOne: false
             "assert_admin":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
+"commit_import_batch":
+{ Args: { "p_batch_id": string,"p_items": Json }; Returns: Json
+                           },
+"commit_quiz_attempt":
+{ Args: { "p_answers": Json,"p_attempt_id": string,"p_auto": boolean,"p_grades": Json,"p_max_score": number,"p_score": number,"p_student_id": string }; Returns: boolean
+                           },
+"enqueue_code_submission":
+{ Args: { "p_code": string,"p_key": string,"p_language": string,"p_max_marks": number,"p_student_id": string,"p_version_id": string }; Returns: Json
+                           },
 "is_admin":
 { Args: Record<PropertyKey, never>; Returns: boolean
                            },
@@ -539,14 +588,23 @@ isOneToOne: false
 "publish_coding_question":
 { Args: { "p_question_id": string }; Returns: string
                            },
+"reserve_code_run":
+{ Args: { "p_code": string,"p_student_id": string,"p_version_id": string }; Returns: string
+                           },
 "save_coding_draft":
 { Args: { "p_payload": Json,"p_question_id"?: string }; Returns: Json
                            },
 "save_mcq_draft":
 { Args: { "p_payload": Json,"p_question_id"?: string }; Returns: Json
                            },
+"save_quiz_answer":
+{ Args: { "p_attempt_id": string,"p_marked": boolean,"p_selected": (string)[],"p_student_id": string,"p_version_id": string }; Returns: undefined
+                           },
 "save_quiz_draft":
 { Args: { "p_assessment_id"?: string,"p_payload": Json }; Returns: string
+                           },
+"save_review":
+{ Args: { "p_payload": Json,"p_publish": boolean }; Returns: Json
                            },
 "student_can_see_version":
 { Args: { "vid": string }; Returns: boolean
